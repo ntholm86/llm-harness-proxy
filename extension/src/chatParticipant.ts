@@ -48,6 +48,7 @@ export function registerChatParticipant(
       // request and prepend their content so the model has full workspace
       // context — without this the model is blind to any referenced files.
       const refParts: vscode.LanguageModelTextPart[] = [];
+      const resolvedRefs: { label: string; uri: vscode.Uri }[] = [];
       for (const ref of request.references) {
         try {
           if (ref.value instanceof vscode.Uri) {
@@ -58,6 +59,7 @@ export function registerChatParticipant(
                 `### File: ${ref.value.fsPath}\n\`\`\`\n${text}\n\`\`\`\n`,
               ),
             );
+            resolvedRefs.push({ label: ref.value.fsPath, uri: ref.value });
           } else if (ref.value instanceof vscode.Location) {
             const doc = await vscode.workspace.openTextDocument(ref.value.uri);
             const text = doc.getText(ref.value.range);
@@ -66,10 +68,31 @@ export function registerChatParticipant(
                 `### Selection from: ${ref.value.uri.fsPath}\n\`\`\`\n${text}\n\`\`\`\n`,
               ),
             );
+            resolvedRefs.push({ label: `${ref.value.uri.fsPath} (selection)`, uri: ref.value.uri });
+          } else if (typeof ref.value === "string") {
+            refParts.push(new vscode.LanguageModelTextPart(`### Reference: ${ref.id}\n${ref.value}\n`));
           }
-        } catch {
-          // If a reference can't be resolved, skip it — don't abort the request.
+        } catch (e) {
+          stream.markdown(`*Harness: failed to resolve reference \`${ref.id}\`: ${e instanceof Error ? e.message : String(e)}*\n\n`);
         }
+      }
+
+      // Fallback: if no explicit references, include the active editor's
+      // visible content so the model has *something* to look at.
+      const activeEditor = vscode.window.activeTextEditor;
+      if (!refParts.length && activeEditor) {
+        const text = activeEditor.document.getText();
+        refParts.push(
+          new vscode.LanguageModelTextPart(
+            `### Active editor: ${activeEditor.document.uri.fsPath}\n\`\`\`\n${text}\n\`\`\`\n`,
+          ),
+        );
+        resolvedRefs.push({ label: `${activeEditor.document.uri.fsPath} (active editor, no refs attached)`, uri: activeEditor.document.uri });
+      }
+
+      // Surface what we forwarded so the user can see context the model received.
+      for (const r of resolvedRefs) {
+        stream.reference(r.uri);
       }
 
       // Build the final user message: references block (if any) + prompt.
@@ -91,7 +114,10 @@ export function registerChatParticipant(
       const inHash = hashInput(null, plainMessages);
       const sid = newUlid();
 
-      stream.progress(`Thinking via ${model.name} (harnessed)�`);
+      const refSummary = resolvedRefs.length
+        ? `${resolvedRefs.length} ref${resolvedRefs.length === 1 ? "" : "s"} attached`
+        : `no refs attached`;
+      stream.progress(`Thinking via ${model.name} (harnessed, ${refSummary})…`);
 
       let fullResponse = "";
       try {
