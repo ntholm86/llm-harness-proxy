@@ -1,5 +1,26 @@
 ﻿
 ---
+## [2026-05-07] Vision Run: Post-Extension Milestone
+**Hunches formed and questions asked:**
+
+1. *Extension vs proxy as centrepiece* — Is the VS Code extension now the primary path, with the proxy as secondary?
+   - Operator response: Both are peers. The extension is the primary path for VS Code/Copilot Chat users because that's what the team uses; the proxy is for scripts and non-VS-Code agents. Same ledger contract, different delivery context.
+
+2. *"Show colleagues" implies installability* — Does this mean install from marketplace / `.vsix`, not "clone + F5"?
+   - Operator response: Confirmed. End-state is marketplace or a `.vsix` installer.
+
+3. *SPEC.md as single authority for both paths* — Should SPEC.md cover both write paths so any future client implements against one document?
+   - Operator response: Yes.
+
+**What the agent now believes:** Two peer delivery paths, both governed by SPEC.md. Extension = primary for VS Code users; proxy = for scripts/agents. Marketplace/`.vsix` installability is the concrete end-state for colleague distribution. SPEC.md must formally specify the direct-write path.
+
+**What was rejected:** The framing of proxy as centrepiece / extension as "UX wrapper."
+
+**What is still open:** SSE/streaming in fail-closed paradigm; SPEC.md direct-write section; tests for `ledgerWriter.ts`; `.vsix` packaging.
+
+**Actions:** Updated `.trail/vision.md` to reflect confirmed hunches.
+
+---
 ## [2026-05-07] Retrospect: Post-Extension Milestone Arc-Read
 **Scope:** Read the full arc from vision lock through SPEC, proxy MVP, and VS Code extension build. Determine what the project is becoming, where attention has been, and whether the loop has been looking at the right things.
 
