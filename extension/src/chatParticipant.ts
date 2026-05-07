@@ -1,0 +1,110 @@
+import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
+import { readEntries } from "./ledgerProvider";
+import { newUlid, hashInput, appendEntry, LedgerError } from "./ledgerWriter";
+
+export function registerChatParticipant(
+  context: vscode.ExtensionContext,
+  harnessRoot: string,
+  sessionsDir: string,
+): vscode.Disposable {
+  const participant = vscode.chat.createChatParticipant(
+    "harness",
+    async (
+      request: vscode.ChatRequest,
+      chatContext: vscode.ChatContext,
+      stream: vscode.ChatResponseStream,
+      token: vscode.CancellationToken,
+    ) => {
+      if (request.command === "ledger") {
+        return showLedgerSummary(stream, sessionsDir);
+      }
+
+      const [model] = await vscode.lm.selectChatModels({
+        vendor: request.model?.vendor,
+        family: request.model?.family,
+        id: request.model?.id,
+      });
+
+      if (!model) {
+        stream.markdown("**Harness:** No language model available. Make sure GitHub Copilot is signed in.");
+        return;
+      }
+
+      const lmMessages: vscode.LanguageModelChatMessage[] = [];
+      for (const turn of chatContext.history) {
+        if (turn instanceof vscode.ChatRequestTurn) {
+          lmMessages.push(vscode.LanguageModelChatMessage.User(turn.prompt));
+        } else if (turn instanceof vscode.ChatResponseTurn) {
+          const text = turn.response
+            .map((r) => r instanceof vscode.ChatResponseMarkdownPart ? r.value.value : "")
+            .join("");
+          if (text) lmMessages.push(vscode.LanguageModelChatMessage.Assistant(text));
+        }
+      }
+      lmMessages.push(vscode.LanguageModelChatMessage.User(request.prompt));
+
+      const plainMessages = lmMessages.map((m) => ({
+        role: m.role === vscode.LanguageModelChatMessageRole.User ? "user" : "assistant",
+        content: (Array.isArray(m.content)
+          ? (m.content as vscode.LanguageModelTextPart[])
+              .filter((p) => typeof p.value === "string")
+              .map((p) => p.value)
+              .join("")
+          : String(m.content)),
+      }));
+      const inHash = hashInput(null, plainMessages);
+      const sid = newUlid();
+
+      stream.progress(`Thinking via ${model.name} (harnessed)…`);
+
+      let fullResponse = "";
+      try {
+        const response = await model.sendRequest(lmMessages, {}, token);
+        for await (const chunk of response.text) {
+          fullResponse += chunk;
+          if (token.isCancellationRequested) break;
+        }
+      } catch (e: unknown) {
+        stream.markdown(`**Model error:** ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+
+      let entry;
+      try {
+        entry = appendEntry(harnessRoot, sid, model.id, inHash, fullResponse, null);
+      } catch (e) {
+        if (e instanceof LedgerError) {
+          stream.markdown(`**Harness FAIL-CLOSED:** Ledger write failed — response withheld.\n\n\`${e.message}\``);
+          return;
+        }
+        throw e;
+      }
+
+      stream.markdown(fullResponse);
+      stream.markdown(
+        `\n\n---\n*Harnessed · model \`${model.id}\` · session \`${entry.sid}\` · entry #${entry.seq} · prev \`${entry.prev.slice(0, 16)}…\`*`
+      );
+    },
+  );
+
+  participant.iconPath = new vscode.ThemeIcon("law");
+  return { dispose() { participant.dispose(); } };
+}
+
+async function showLedgerSummary(stream: vscode.ChatResponseStream, sessionsDir: string): Promise<void> {
+  if (!fs.existsSync(sessionsDir)) {
+    stream.markdown("No sessions on disk yet.");
+    return;
+  }
+  const files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".jsonl")).sort().reverse().slice(0, 10);
+  if (!files.length) { stream.markdown("No sessions found."); return; }
+  const lines = ["### Harness Ledger — last 10 sessions", ""];
+  for (const f of files) {
+    const entries = readEntries(path.join(sessionsDir, f));
+    const last = entries.at(-1);
+    lines.push(`- **\`${f.replace(".jsonl", "")}\`** · ${entries.length} entries · last model: \`${last?.model ?? "?"}\``);
+  }
+  stream.markdown(lines.join("\n"));
+}
