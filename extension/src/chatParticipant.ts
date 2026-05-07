@@ -17,6 +17,30 @@ export function registerChatParticipant(
       stream: vscode.ChatResponseStream,
       token: vscode.CancellationToken,
     ) => {
+      try {
+        return await handleRequest(request, chatContext, stream, token, harnessRoot, sessionsDir);
+      } catch (e: unknown) {
+        // Top-level guard: surface every unexpected error in the chat so the
+        // participant does NOT go silent. Without this VS Code kills the
+        // participant after any unhandled rejection and subsequent messages
+        // get no response.
+        stream.markdown(`**Harness internal error** (participant kept alive):\n\n\`\`\`\n${e instanceof Error ? e.stack ?? e.message : String(e)}\n\`\`\``);
+      }
+    },
+  );
+
+  participant.iconPath = new vscode.ThemeIcon("law");
+  return { dispose() { participant.dispose(); } };
+}
+
+async function handleRequest(
+  request: vscode.ChatRequest,
+  chatContext: vscode.ChatContext,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  harnessRoot: string,
+  sessionsDir: string,
+): Promise<void> {
       if (request.command === "ledger") {
         return showLedgerSummary(stream, sessionsDir);
       }
@@ -137,20 +161,17 @@ export function registerChatParticipant(
         entry = appendEntry(harnessRoot, sid, model.id, inHash, fullResponse, null);
       } catch (e) {
         if (e instanceof LedgerError) {
-          stream.markdown(`**Harness FAIL-CLOSED:** Ledger write failed � response withheld.\n\n\`${e.message}\``);
+          stream.markdown(`**Harness FAIL-CLOSED:** Ledger write failed — response withheld.\n\n\`${e.message}\``);
           return;
         }
-        throw e;
+        // Non-LedgerError — surface it rather than re-throwing (would kill participant).
+        stream.markdown(`**Harness ledger error:** ${e instanceof Error ? e.message : String(e)}\n\n*Response was delivered but not ledgered.*`);
+        return;
       }
 
       stream.markdown(
-        `\n\n---\n*Harnessed � model \`${model.id}\` � session \`${entry.sid}\` � entry #${entry.seq} � prev \`${entry.prev.slice(0, 16)}�\`*`
+        `\n\n---\n*Harnessed \uD83D\uDCCB model \`${model.id}\` \u00B7 session \`${entry.sid}\` \u00B7 entry #${entry.seq} \u00B7 prev \`${entry.prev.slice(0, 16)}\u2026\`*`
       );
-    },
-  );
-
-  participant.iconPath = new vscode.ThemeIcon("law");
-  return { dispose() { participant.dispose(); } };
 }
 
 async function showLedgerSummary(stream: vscode.ChatResponseStream, sessionsDir: string): Promise<void> {
