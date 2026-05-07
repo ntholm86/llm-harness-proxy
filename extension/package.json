@@ -4,6 +4,11 @@
   "description": "Architectural Constraint for LLM agents — fail-closed cryptographic ledger of every model interaction.",
   "version": "0.1.0",
   "publisher": "ntholm86",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ntholm86/harness-protocol"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },

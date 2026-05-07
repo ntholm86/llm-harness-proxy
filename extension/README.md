@@ -1,9 +1,11 @@
 # Harness Protocol — VS Code Extension
 
-The UX wrapper for the [Harness Protocol](../SPEC.md). It manages the local
+The UX wrapper for the [Harness Protocol](https://github.com/ntholm86/harness-protocol/blob/master/SPEC.md). It manages the local
 MITM proxy, injects `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` into your
 integrated terminals, and renders the cryptographic ledger live in the
 explorer sidebar.
+
+`@harness` in Copilot Chat works with **whatever model you have selected** — no API key required.
 
 ## Features
 - **Auto-start** the local proxy when a workspace opens.
