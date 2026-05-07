@@ -57,15 +57,31 @@ async function handleRequest(
       }
 
       const lmMessages: vscode.LanguageModelChatMessage[] = [];
+      let sid = "";
+      // Match the trailing footer we append to responses to recover the session ID
+      // and strip it so we don't pollute the model's context window.
+      const footerRegex = /\n\n---\n\*Harnessed.*session \`([A-Z0-9]{26})\`.*\*/;
+
       for (const turn of chatContext.history) {
         if (turn instanceof vscode.ChatRequestTurn) {
           lmMessages.push(vscode.LanguageModelChatMessage.User(turn.prompt));
         } else if (turn instanceof vscode.ChatResponseTurn) {
-          const text = turn.response
+          let text = turn.response
             .map((r) => r instanceof vscode.ChatResponseMarkdownPart ? r.value.value : "")
             .join("");
-          if (text) lmMessages.push(vscode.LanguageModelChatMessage.Assistant(text));
+          if (text) {
+            const match = text.match(footerRegex);
+            if (match) {
+              sid = match[1];
+              text = text.replace(footerRegex, "");
+            }
+            lmMessages.push(vscode.LanguageModelChatMessage.Assistant(text));
+          }
         }
+      }
+
+      if (!sid) {
+        sid = newUlid();
       }
 
       // Resolve #file / #selection / #codebase references attached to this
@@ -136,7 +152,6 @@ async function handleRequest(
           : String(m.content)),
       }));
       const inHash = hashInput(null, plainMessages);
-      const sid = newUlid();
 
       const refSummary = resolvedRefs.length
         ? `${resolvedRefs.length} ref${resolvedRefs.length === 1 ? "" : "s"} attached`
