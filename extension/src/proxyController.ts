@@ -71,6 +71,18 @@ export class ProxyController implements vscode.Disposable {
       ? cfg.root
       : path.join(this.workspaceRoot, cfg.root);
 
+    // Pre-flight: if the resolved python path is an absolute path that doesn't
+    // exist, bail early with a friendly message instead of spawning and then
+    // hanging 5 s waiting for a health-check that will never pass.
+    if (path.isAbsolute(cfg.python) && !fs.existsSync(cfg.python)) {
+      this.output.appendLine(
+        `Harness proxy not started: python not found at "${cfg.python}". ` +
+        `The @harness chat participant works without the proxy — ` +
+        `set up the proxy venv (see README) to also harness terminal/script traffic.`,
+      );
+      return;
+    }
+
     this.output.show(true);
     this.output.appendLine(`Starting proxy: ${cfg.python}`);
     this.output.appendLine(`  app-dir: ${proxyDir}`);
@@ -101,6 +113,17 @@ export class ProxyController implements vscode.Disposable {
 
     this.proc.stdout?.on('data', (b) => this.output.append(b.toString()));
     this.proc.stderr?.on('data', (b) => this.output.append(b.toString()));
+    this.proc.on('error', (err) => {
+      this.output.appendLine(`Proxy spawn error: ${err.message}`);
+      this.output.appendLine(
+        `The @harness chat participant works without the proxy — ` +
+        `set up the proxy venv (see README) to also harness terminal/script traffic.`,
+      );
+      this.proc = null;
+      this.updateStatusBar();
+      void vscode.commands.executeCommand('setContext', 'harness.running', false);
+      this.onDidChange.fire(false);
+    });
     this.proc.on('exit', (code, signal) => {
       this.output.appendLine(`Proxy exited code=${code} signal=${signal}`);
       this.proc = null;

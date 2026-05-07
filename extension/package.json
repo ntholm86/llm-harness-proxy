@@ -42,10 +42,6 @@
       {
         "command": "harness.openSession",
         "title": "Harness: Open Session File"
-      },
-      {
-        "command": "harness.setApiKey",
-        "title": "Harness: Set API Key"
       }
     ],
     "views": {
