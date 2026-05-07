@@ -92,7 +92,7 @@ export function registerChatParticipant(
 
       // Surface what we forwarded so the user can see context the model received.
       for (const r of resolvedRefs) {
-        stream.reference(r.uri);
+        try { stream.reference(r.uri); } catch { /* API may not be available in all VS Code versions */ }
       }
 
       // Build the final user message: references block (if any) + prompt.
@@ -124,6 +124,7 @@ export function registerChatParticipant(
         const response = await model.sendRequest(lmMessages, {}, token);
         for await (const chunk of response.text) {
           fullResponse += chunk;
+          stream.markdown(chunk);  // stream live — don't buffer
           if (token.isCancellationRequested) break;
         }
       } catch (e: unknown) {
@@ -142,7 +143,6 @@ export function registerChatParticipant(
         throw e;
       }
 
-      stream.markdown(fullResponse);
       stream.markdown(
         `\n\n---\n*Harnessed � model \`${model.id}\` � session \`${entry.sid}\` � entry #${entry.seq} � prev \`${entry.prev.slice(0, 16)}�\`*`
       );
