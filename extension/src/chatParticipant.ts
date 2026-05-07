@@ -58,9 +58,9 @@ async function handleRequest(
 
       const lmMessages: vscode.LanguageModelChatMessage[] = [];
       let sid = "";
-      // Match the trailing footer we append to responses to recover the session ID
-      // and strip it so we don't pollute the model's context window.
-      const footerRegex = /\n\n---\n\*Harnessed.*session \`([A-Z0-9]{26})\`.*\*/;
+      // Make regex more permissive to line endings and whitespace to ensure it
+      // actually catches the footer we append, regardless of how VS Code normalizes it.
+      const footerRegex = /[\r\n]*---\r?\n\*Harnessed.*session \`([A-Z0-9]{26})\`.*\*/;
 
       for (const turn of chatContext.history) {
         if (turn instanceof vscode.ChatRequestTurn) {
@@ -69,6 +69,7 @@ async function handleRequest(
           let text = turn.response
             .map((r) => r instanceof vscode.ChatResponseMarkdownPart ? r.value.value : "")
             .join("");
+          
           if (text) {
             const match = text.match(footerRegex);
             if (match) {
@@ -83,6 +84,9 @@ async function handleRequest(
       if (!sid) {
         sid = newUlid();
       }
+
+      // DEBUG: Let's dump what we actually extracted from history to find out why it failed
+      stream.markdown(`*(Debug) Extracted sid from history: \`${sid}\`*\n\n`);
 
       // Resolve #file / #selection / #codebase references attached to this
       // request and prepend their content so the model has full workspace
