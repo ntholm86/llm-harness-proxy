@@ -1,5 +1,30 @@
 ﻿
 ---
+## [2026-05-07] Improve: Graceful proxy failure for .vsix install path
+**Target:** `extension/src/proxyController.ts`, `extension/package.json`
+**Interpretation:** Run improve on harness-protocol with orientation from vision (marketplace/`.vsix` end-state) and retrospect (built without correctness verification).
+
+**Lenses applied:**
+- *Inconsistency:* `harness.setApiKey` declared in `package.json`, no handler in `extension.ts` → Command Palette shows it, clicking gives "command not found."
+- *Waste:* Same dead command.
+- *Correctness:* `proxyController.start()` spawned python with no `proc.on('error')` handler. ENOENT on a fresh `.vsix` install → unhandled Node.js error event → extension host crash. Plus 5-second `waitForHealth()` hang on every activation.
+
+**Decision:** One change — add pre-flight python existence check + `proc.on('error')` handler to `proxyController.start()`. Remove dead `harness.setApiKey` command.
+
+**[!DECISION]** Pre-flight path abort rather than relying solely on runtime error handling — chosen because it also eliminates the 5-second health-check hang, not just the crash.
+
+**Prediction:** Fresh `.vsix` install with no python venv → clean activation, friendly output message, `@harness` works via `vscode.lm`. No extension host crash. No 5-second hang.
+
+**Verification:** `npx tsc -p .` — clean. Code inspection confirms error event is handled, proc nulled, statusBar updated, context key set correctly.
+
+**Reflection:**
+- *Model claim:* The extension's proxy path and chat-participant path are now cleanly decoupled at runtime — the proxy can fail without affecting `@harness`. This is the right shape for the "two peer paths" architecture.
+- *Blind spot:* Did not exercise the actual `vscode.lm.selectChatModels()` call path in a live Extension Development Host. The participant logic could fail silently at runtime in ways the TypeScript compiler won't catch.
+- *Imagined reader pushback:* "You still haven't actually built the `.vsix` — you've only removed a blocker. The packaging step itself hasn't been tried."
+
+**[!REALIZATION]** The `.vsix` can now be attempted without crashing. The next run should actually run `vsce package` and see what it produces.
+
+---
 ## [2026-05-07] Vision Run: Post-Extension Milestone
 **Hunches formed and questions asked:**
 
