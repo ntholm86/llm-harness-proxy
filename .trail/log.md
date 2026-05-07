@@ -1,5 +1,32 @@
 ﻿
 ---
+## [2026-05-07] Improve: .vsix packaging — first distributable build
+**Target:** `extension/` packaging via `@vscode/vsce`
+
+**Findings:**
+- `package.json` missing `repository` field → vsce couldn't resolve relative link `../SPEC.md` in README → fatal error.
+- `README.md` linked to `../SPEC.md` — broken outside the monorepo context.
+- No `LICENSE` file → warning, interactive prompt required.
+
+**Changes:**
+- Added `repository` + `license` fields to `package.json`.
+- Fixed README link to absolute GitHub URL.
+- Added `extension/LICENSE` (MIT).
+
+**Prediction:** Clean `vsce package` with zero warnings, producing `harness-protocol-0.1.0.vsix`.
+
+**Outcome:** `harness-protocol-0.1.0.vsix` — 10 files, 15.24 KB, zero warnings. Prediction held.
+
+**[!DECISION]** Used absolute GitHub URL in README rather than copying SPEC.md into the extension folder — avoids content duplication and keeps SPEC.md as the single source.
+
+**Reflection:**
+- *Model claim:* The extension is now distributable. A colleague can install `harness-protocol-0.1.0.vsix` directly. The marketplace publish step is the only remaining gap to the vision end-state.
+- *Blind spot:* The `.vsix` hasn't been installed and tested on a clean machine. It compiles and packages correctly but live activation behaviour is unverified.
+- *Imagined reader pushback:* "The `.vsix` is gitignored — where does a colleague actually get the file?" There's no release artifact or CI producing it yet.
+
+**[!REALIZATION]** The next meaningful gap is either: (a) a GitHub release with the `.vsix` attached, or (b) a Marketplace publish. Both require the GitHub remote to exist first.
+
+---
 ## [2026-05-07] Improve: Graceful proxy failure for .vsix install path
 **Target:** `extension/src/proxyController.ts`, `extension/package.json`
 **Interpretation:** Run improve on harness-protocol with orientation from vision (marketplace/`.vsix` end-state) and retrospect (built without correctness verification).
