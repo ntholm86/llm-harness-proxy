@@ -43,7 +43,41 @@ export function registerChatParticipant(
           if (text) lmMessages.push(vscode.LanguageModelChatMessage.Assistant(text));
         }
       }
-      lmMessages.push(vscode.LanguageModelChatMessage.User(request.prompt));
+
+      // Resolve #file / #selection / #codebase references attached to this
+      // request and prepend their content so the model has full workspace
+      // context â€” without this the model is blind to any referenced files.
+      const refParts: vscode.LanguageModelTextPart[] = [];
+      for (const ref of request.references) {
+        try {
+          if (ref.value instanceof vscode.Uri) {
+            const bytes = await vscode.workspace.fs.readFile(ref.value);
+            const text = Buffer.from(bytes).toString("utf8");
+            refParts.push(
+              new vscode.LanguageModelTextPart(
+                `### File: ${ref.value.fsPath}\n\`\`\`\n${text}\n\`\`\`\n`,
+              ),
+            );
+          } else if (ref.value instanceof vscode.Location) {
+            const doc = await vscode.workspace.openTextDocument(ref.value.uri);
+            const text = doc.getText(ref.value.range);
+            refParts.push(
+              new vscode.LanguageModelTextPart(
+                `### Selection from: ${ref.value.uri.fsPath}\n\`\`\`\n${text}\n\`\`\`\n`,
+              ),
+            );
+          }
+        } catch {
+          // If a reference can't be resolved, skip it â€” don't abort the request.
+        }
+      }
+
+      // Build the final user message: references block (if any) + prompt.
+      const userContent: (vscode.LanguageModelTextPart)[] = [
+        ...(refParts.length ? [new vscode.LanguageModelTextPart("The following files/selections were attached to this request:\n\n"), ...refParts] : []),
+        new vscode.LanguageModelTextPart(request.prompt),
+      ];
+      lmMessages.push(new vscode.LanguageModelChatMessage(vscode.LanguageModelChatMessageRole.User, userContent));
 
       const plainMessages = lmMessages.map((m) => ({
         role: m.role === vscode.LanguageModelChatMessageRole.User ? "user" : "assistant",
@@ -57,7 +91,7 @@ export function registerChatParticipant(
       const inHash = hashInput(null, plainMessages);
       const sid = newUlid();
 
-      stream.progress(`Thinking via ${model.name} (harnessed)…`);
+      stream.progress(`Thinking via ${model.name} (harnessed)ï¿½`);
 
       let fullResponse = "";
       try {
@@ -76,7 +110,7 @@ export function registerChatParticipant(
         entry = appendEntry(harnessRoot, sid, model.id, inHash, fullResponse, null);
       } catch (e) {
         if (e instanceof LedgerError) {
-          stream.markdown(`**Harness FAIL-CLOSED:** Ledger write failed — response withheld.\n\n\`${e.message}\``);
+          stream.markdown(`**Harness FAIL-CLOSED:** Ledger write failed ï¿½ response withheld.\n\n\`${e.message}\``);
           return;
         }
         throw e;
@@ -84,7 +118,7 @@ export function registerChatParticipant(
 
       stream.markdown(fullResponse);
       stream.markdown(
-        `\n\n---\n*Harnessed · model \`${model.id}\` · session \`${entry.sid}\` · entry #${entry.seq} · prev \`${entry.prev.slice(0, 16)}…\`*`
+        `\n\n---\n*Harnessed ï¿½ model \`${model.id}\` ï¿½ session \`${entry.sid}\` ï¿½ entry #${entry.seq} ï¿½ prev \`${entry.prev.slice(0, 16)}ï¿½\`*`
       );
     },
   );
@@ -100,11 +134,11 @@ async function showLedgerSummary(stream: vscode.ChatResponseStream, sessionsDir:
   }
   const files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".jsonl")).sort().reverse().slice(0, 10);
   if (!files.length) { stream.markdown("No sessions found."); return; }
-  const lines = ["### Harness Ledger — last 10 sessions", ""];
+  const lines = ["### Harness Ledger ï¿½ last 10 sessions", ""];
   for (const f of files) {
     const entries = readEntries(path.join(sessionsDir, f));
     const last = entries.at(-1);
-    lines.push(`- **\`${f.replace(".jsonl", "")}\`** · ${entries.length} entries · last model: \`${last?.model ?? "?"}\``);
+    lines.push(`- **\`${f.replace(".jsonl", "")}\`** ï¿½ ${entries.length} entries ï¿½ last model: \`${last?.model ?? "?"}\``);
   }
   stream.markdown(lines.join("\n"));
 }
