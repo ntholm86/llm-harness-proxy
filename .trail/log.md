@@ -1,5 +1,22 @@
 ﻿
 ---
+## [2026-05-08] Dumb-reader extension built, Rust proxy source committed, docs updated
+
+**Target:** `harness-protocol` (whole repo)
+**Operator ask:** "please continue" / "please do these things" — complete the new architecture.
+
+**Actions taken:**
+- `extension/` created from scratch: `package.json` (no `chatParticipants`), `src/extension.ts` (activate only — registers tree view + refresh), `src/harnessRoot.ts` (config resolution), `src/ledgerProvider.ts` (reads JSONL, shows tree: session → entry → fields). Zero recording logic.
+- `proxy-rust/` committed (was untracked despite prior belief — git history confirmed it was never in a commit). `proxy-rust/target/` added to `.gitignore`.
+- `SPEC.md` updated: added §15 (Reference implementations) describing both `proxy-rust/` and `extension/`.
+- `README.md` rewritten: removed stale three-tier description referencing `.trail/log.md` and "extension runs proxy in background"; replaced with accurate two-component architecture.
+- Pushed two commits: `a03acbd` (extension), `12bafda` (proxy-rust + gitignore), `f97e484` (docs).
+
+**Open:**
+- CI build result not yet confirmed (repo appears private; GitHub Actions page returned 404 over unauthenticated HTTP fetch). Next step: check `https://github.com/ntholm86/LLM-harness-protocol/actions` in browser.
+- End-to-end test: download built binary, set `HARNESS_ROOT`, point a client at `http://127.0.0.1:8080`, verify `.harness/sessions/*.jsonl` is written and chain verifies.
+
+---
 ## [2026-05-08] [!REVERSAL] Architectural reset — delete extension + Python proxy, build Rust proxy + CI
 **Target:** `harness-protocol` (whole repo)
 **Operator ask:** Delete VS Code extension, delete Python proxy, set up GitHub Actions for Rust proxy.
