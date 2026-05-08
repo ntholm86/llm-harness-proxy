@@ -58,12 +58,10 @@ async function handleRequest(
 
       const lmMessages: vscode.LanguageModelChatMessage[] = [];
       let sid = "";
-      // Match the footer we append - very permissive on whitespace
-      const footerRegex = /\*Harnessed[^*]*session\s+`([A-Z0-9]{26})`[^*]*\*/;
-
-      // Diagnostic: count history items and capture last assistant text snippet
-      const historyCount = chatContext.history.length;
-      let lastAssistantSnippet = "";
+      // Footer regex — must match the 26-char ULID we now generate correctly.
+      // Very permissive on surrounding whitespace so VS Code markdown normalization
+      // doesn't break it.
+      const footerRegex = /\*Harnessed[^*]*session\s*`([A-Z0-9]{26})`[^*]*\*/;
 
       for (const turn of chatContext.history) {
         if (turn instanceof vscode.ChatRequestTurn) {
@@ -74,11 +72,11 @@ async function handleRequest(
             .join("");
 
           if (text) {
-            lastAssistantSnippet = text.slice(-200); // last 200 chars
             const match = text.match(footerRegex);
             if (match) {
               sid = match[1];
-              text = text.replace(footerRegex, "").replace(/\n*---\n*$/, "");
+              // Strip the footer and the preceding HR so the model doesn't see it
+              text = text.replace(/\n*---\n*\*Harnessed[^*]*\*/, "").trimEnd();
             }
             lmMessages.push(vscode.LanguageModelChatMessage.Assistant(text));
           }
@@ -88,19 +86,6 @@ async function handleRequest(
       if (!sid) {
         sid = newUlid();
       }
-
-      // Discover available tools so the model can actually do work (read files,
-      // run commands, etc) instead of just hallucinating tool-call markdown.
-      const availableTools = vscode.lm.tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema,
-      }));
-
-      // DEBUG: surface what we actually have
-      stream.markdown(
-        `*(Debug) history=${historyCount} turns | sid=\`${sid}\` | tools=${availableTools.length} | last-assistant-tail: \`${lastAssistantSnippet.replace(/\n/g, "\\n").slice(-80)}\`*\n\n`,
-      );
 
       // Resolve #file / #selection / #codebase references attached to this
       // request and prepend their content so the model has full workspace
@@ -176,13 +161,69 @@ async function handleRequest(
         : `no refs attached`;
       stream.progress(`Thinking via ${model.name} (harnessed, ${refSummary})…`);
 
+      // Pass all available VS Code LM tools so the model can actually invoke
+      // file reads, searches, terminal commands etc — identical behaviour to
+      // native Copilot Chat, just with every exchange ledgered.
+      const tools = [...vscode.lm.tools] as vscode.LanguageModelChatTool[];
+
       let fullResponse = "";
       try {
-        const response = await model.sendRequest(lmMessages, {}, token);
-        for await (const chunk of response.text) {
-          fullResponse += chunk;
-          stream.markdown(chunk);  // stream live — don't buffer
-          if (token.isCancellationRequested) break;
+        // Agentic tool-call loop: keep sending until the model produces a
+        // pure-text response with no pending tool calls.
+        while (!token.isCancellationRequested) {
+          const response = await model.sendRequest(
+            lmMessages,
+            tools.length ? { tools } : {},
+            token,
+          );
+
+          const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+          let textThisTurn = "";
+
+          for await (const chunk of response.stream) {
+            if (token.isCancellationRequested) break;
+            if (chunk instanceof vscode.LanguageModelTextPart) {
+              textThisTurn += chunk.value;
+              stream.markdown(chunk.value);
+            } else if (chunk instanceof vscode.LanguageModelToolCallPart) {
+              toolCalls.push(chunk);
+            }
+          }
+
+          fullResponse += textThisTurn;
+
+          if (toolCalls.length === 0) {
+            break; // done — pure text response
+          }
+
+          // Add assistant turn with tool calls, then invoke each tool and
+          // feed results back before the next iteration.
+          lmMessages.push(new vscode.LanguageModelChatMessage(
+            vscode.LanguageModelChatMessageRole.Assistant,
+            toolCalls as unknown as vscode.LanguageModelTextPart[],
+          ));
+
+          const toolResults: vscode.LanguageModelToolResultPart[] = [];
+          for (const tc of toolCalls) {
+            try {
+              const result = await vscode.lm.invokeTool(
+                tc.name,
+                { input: tc.input as Record<string, unknown>, toolInvocationToken: request.toolInvocationToken },
+                token,
+              );
+              toolResults.push(new vscode.LanguageModelToolResultPart(tc.callId, result.content as vscode.LanguageModelTextPart[]));
+            } catch (toolErr) {
+              toolResults.push(new vscode.LanguageModelToolResultPart(
+                tc.callId,
+                [new vscode.LanguageModelTextPart(`Tool error: ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`)],
+              ));
+            }
+          }
+
+          lmMessages.push(new vscode.LanguageModelChatMessage(
+            vscode.LanguageModelChatMessageRole.User,
+            toolResults as unknown as vscode.LanguageModelTextPart[],
+          ));
         }
       } catch (e: unknown) {
         stream.markdown(`**Model error:** ${e instanceof Error ? e.message : String(e)}`);

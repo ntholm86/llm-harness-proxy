@@ -2,7 +2,7 @@
   "name": "harness-protocol",
   "displayName": "Harness Protocol",
   "description": "Architectural Constraint for LLM agents — fail-closed cryptographic ledger of every model interaction.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "ntholm86",
   "license": "MIT",
   "repository": {

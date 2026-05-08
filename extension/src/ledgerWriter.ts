@@ -16,15 +16,14 @@ const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
 export function newUlid(): string {
   const tsMs = Date.now();
-  // 10-byte time (48-bit ms) + 10-byte random
   let t = tsMs;
   const chars: string[] = new Array(26);
-  // 10 random chars (80 bits)
-  const rand = crypto.randomBytes(10);
-  for (let i = 25; i >= 16; i--) {
-    chars[i] = CROCKFORD[rand[25 - i] & 0x1f];
+  // 16 random chars (indices 10-25) — 80 bits of randomness, 5 bits per char
+  const rand = crypto.randomBytes(16);
+  for (let i = 10; i <= 25; i++) {
+    chars[i] = CROCKFORD[rand[i - 10] & 0x1f];
   }
-  // 10 time chars (50 bits, we use 48)
+  // 10 time chars (indices 0-9) — 48-bit ms timestamp
   for (let i = 9; i >= 0; i--) {
     chars[i] = CROCKFORD[t % 32];
     t = Math.floor(t / 32);
