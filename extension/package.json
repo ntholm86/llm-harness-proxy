@@ -2,7 +2,7 @@
   "name": "harness-protocol",
   "displayName": "Harness Protocol",
   "description": "Architectural Constraint for LLM agents — fail-closed cryptographic ledger of every model interaction.",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "ntholm86",
   "license": "MIT",
   "repository": {
@@ -15,26 +15,12 @@
   "categories": ["Other"],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onStartupFinished",
     "onView:harnessLedger",
-    "onCommand:harness.start",
-    "onCommand:harness.stop",
-    "onCommand:harness.toggle",
     "onCommand:harness.verifyChain",
     "onChatParticipant:harness"
   ],
   "contributes": {
     "commands": [
-      {
-        "command": "harness.start",
-        "title": "Harness: Start Proxy",
-        "icon": "$(play)"
-      },
-      {
-        "command": "harness.stop",
-        "title": "Harness: Stop Proxy",
-        "icon": "$(stop)"
-      },
       {
         "command": "harness.refresh",
         "title": "Harness: Refresh Ledger",
@@ -65,16 +51,6 @@
           "command": "harness.refresh",
           "when": "view == harnessLedger",
           "group": "navigation"
-        },
-        {
-          "command": "harness.start",
-          "when": "view == harnessLedger && !harness.running",
-          "group": "navigation"
-        },
-        {
-          "command": "harness.stop",
-          "when": "view == harnessLedger && harness.running",
-          "group": "navigation"
         }
       ]
     },
@@ -95,35 +71,10 @@
     "configuration": {
       "title": "Harness Protocol",
       "properties": {
-        "harness.proxy.python": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the Python interpreter that runs the proxy. Leave blank to use the bundled venv at ./proxy/.venv."
-        },
-        "harness.proxy.port": {
-          "type": "number",
-          "default": 8080,
-          "description": "Port the local proxy listens on."
-        },
-        "harness.proxy.host": {
-          "type": "string",
-          "default": "127.0.0.1",
-          "description": "Host the local proxy binds to."
-        },
-        "harness.proxy.root": {
+        "harness.root": {
           "type": "string",
           "default": ".harness",
-          "description": "Workspace-relative path where session ledgers are written."
-        },
-        "harness.proxy.autoStart": {
-          "type": "boolean",
-          "default": false,
-          "description": "Start the proxy automatically when VS Code opens this workspace. Disabled by default — the @harness chat participant works without the proxy."
-        },
-        "harness.proxy.injectEnv": {
-          "type": "boolean",
-          "default": false,
-          "description": "Inject OPENAI_BASE_URL / ANTHROPIC_BASE_URL into the integrated terminal so child processes are harnessed. Only needed when using the proxy path."
+          "description": "Workspace-relative (or absolute) path where session ledgers are written."
         }
       }
     }

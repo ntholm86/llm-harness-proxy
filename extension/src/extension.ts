@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { ProxyController } from './proxyController';
-import { LedgerProvider } from './ledgerProvider';
+import { LedgerProvider, readEntries, verifyChain } from './ledgerProvider';
 import { registerChatParticipant } from './chatParticipant';
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -12,28 +11,25 @@ export async function activate(context: vscode.ExtensionContext) {
   const ws = vscode.workspace.workspaceFolders?.[0];
   const root = ws?.uri.fsPath ?? path.join(context.extensionPath, '..');
 
-  const proxy = new ProxyController(root, context.extensionPath);
+  // ── Core path: resolve harnessRoot directly from config ──────────────────
+  // This must NOT depend on ProxyController so @harness works with zero proxy
+  // setup. ProxyController is only needed for the optional proxy path.
+  const rawRoot = vscode.workspace.getConfiguration('harness').get<string>('root') ?? '.harness';
+  const harnessRoot = path.isAbsolute(rawRoot)
+    ? rawRoot
+    : path.join(root, rawRoot);
+  // Ensure the directory exists so ledger writes never fail on first use.
+  fs.mkdirSync(harnessRoot, { recursive: true });
+  const sessionsDir = path.join(harnessRoot, 'sessions');
 
-  const cfg = proxy.config;
-  const siblingHarnessRoot = path.join(context.extensionPath, '..', '.harness');
-  const harnessRoot = path.isAbsolute(cfg.root)
-    ? cfg.root
-    : path.join(root, cfg.root);
-  const resolvedHarnessRoot = fs.existsSync(harnessRoot) ? harnessRoot : siblingHarnessRoot;
-  const sessionsDir = path.join(resolvedHarnessRoot, 'sessions');
   const ledger = new LedgerProvider(sessionsDir);
 
-  // Always register every command so VS Code never emits 'command not found'.
+  // Register the chat participant first — it is the core feature and must
+  // activate regardless of proxy state.
   context.subscriptions.push(
-    proxy,
     ledger,
     vscode.window.registerTreeDataProvider('harnessLedger', ledger),
-    vscode.commands.registerCommand('harness.start', () => proxy.start()),
-    vscode.commands.registerCommand('harness.stop', () => proxy.stop()),
     vscode.commands.registerCommand('harness.refresh', () => ledger.refresh()),
-    vscode.commands.registerCommand('harness.toggle', () =>
-      proxy.running ? proxy.stop() : proxy.start(),
-    ),
     vscode.commands.registerCommand('harness.openSession', (file: string) =>
       vscode.window.showTextDocument(vscode.Uri.file(file)),
     ),
@@ -41,29 +37,27 @@ export async function activate(context: vscode.ExtensionContext) {
       const files = await vscode.workspace.findFiles(
         new vscode.RelativePattern(sessionsDir, '*.jsonl'),
       );
-      vscode.window.showInformationMessage(
-        `Harness: ${files.length} session(s) on disk.`,
-      );
+      if (files.length === 0) {
+        vscode.window.showInformationMessage('Harness: No session files found.');
+        return;
+      }
+      let broken = 0;
+      for (const f of files) {
+        const entries = readEntries(f.fsPath);
+        if (!verifyChain(entries)) { broken++; }
+      }
+      if (broken === 0) {
+        vscode.window.showInformationMessage(
+          `Harness: ✅ ${files.length} session file(s) — chain intact.`,
+        );
+      } else {
+        vscode.window.showWarningMessage(
+          `Harness: ⚠️ ${broken} of ${files.length} session file(s) have broken chains.`,
+        );
+      }
     }),
-    proxy.onChanged(() => ledger.refresh()),
-    registerChatParticipant(context, resolvedHarnessRoot, sessionsDir),
+    registerChatParticipant(context, harnessRoot, sessionsDir),
   );
-
-  if (cfg.injectEnv) {
-    context.environmentVariableCollection.persistent = false;
-    context.environmentVariableCollection.replace(
-      'OPENAI_BASE_URL',
-      `http://${cfg.host}:${cfg.port}/v1`,
-    );
-    context.environmentVariableCollection.replace(
-      'ANTHROPIC_BASE_URL',
-      `http://${cfg.host}:${cfg.port}`,
-    );
-  }
-
-  if (cfg.autoStart) {
-    void proxy.start();
-  }
 }
 
 export function deactivate() {
