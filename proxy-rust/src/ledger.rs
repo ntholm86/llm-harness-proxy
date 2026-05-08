@@ -1,5 +1,5 @@
-/// Harness Protocol ledger writer — fail-closed, hash-chained JSONL.
-/// Implements SPEC §4, §5, §8, §9.1.
+/// Harness Protocol ledger writer â€” fail-closed, hash-chained JSONL.
+/// Implements SPEC S4, S5, S8, S9.1.
 use crate::{jcs, ulid};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -35,7 +35,7 @@ pub fn hash_input(system: Option<&str>, messages: Option<&Value>, tools: Option<
     format!("sha256:{:x}", digest)
 }
 
-/// Append one ledger entry — fail-closed.
+/// Append one ledger entry â€” fail-closed.
 /// Caller MUST NOT release the upstream response if this returns Err.
 pub struct SessionLedger;
 
@@ -54,7 +54,7 @@ impl SessionLedger {
 
         let path: PathBuf = sessions_dir.join(format!("{}.jsonl", sid));
 
-        // Open for read+append — get exclusive lock via OS file lock.
+        // Open for read+append â€” get exclusive lock via OS file lock.
         let mut file = OpenOptions::new()
             .read(true)
             .append(true)
@@ -111,7 +111,7 @@ fn scan_tail(file: &mut File) -> Result<(u64, String)> {
                 }
                 last_entry = Some(obj);
             }
-            Err(_) => break, // torn line — stop
+            Err(_) => break, // torn line â€” stop
         }
     }
 

@@ -1,4 +1,4 @@
-/// RFC 8785 (JCS) JSON Canonicalization — minimal implementation.
+/// RFC 8785 (JCS) JSON Canonicalization â€” minimal implementation.
 use serde_json::Value;
 
 pub fn canonicalize(value: &Value) -> Vec<u8> {

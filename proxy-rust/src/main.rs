@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// OpenAI-compatible handler — intercept, ledger, release (fail-closed).
+/// OpenAI-compatible handler €” intercept, ledger, release (fail-closed).
 async fn openai_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -122,7 +122,7 @@ async fn openai_handler(
         &reason,
         act.as_ref(),
     )
-    .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
+    .map_err(|e| { error!("ledger write failed €” withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
 
     let mut res = Response::new(Body::from(res_bytes));
     *res.status_mut() = StatusCode::OK;
@@ -195,7 +195,7 @@ async fn anthropic_handler(
         &reason,
         act.as_ref(),
     )
-    .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
+    .map_err(|e| { error!("ledger write failed €” withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
 
     let mut res = Response::new(Body::from(res_bytes));
     *res.status_mut() = StatusCode::OK;
