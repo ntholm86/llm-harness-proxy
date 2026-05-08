@@ -5,11 +5,21 @@ import { LedgerProvider, readEntries, verifyChain } from './ledgerProvider';
 import { registerChatParticipant } from './chatParticipant';
 
 export async function activate(context: vscode.ExtensionContext) {
-  // Resolve workspace root — fall back to extension's parent (repo root) so
-  // the extension still functions when opened in a multi-root or no-folder
-  // Extension Development Host window.
+  // Resolve root: prefer git repo root so the ledger always lives with the
+  // code — not with whatever folder happens to be the workspace root.
+  // Falls back to workspace folder, then extension parent.
   const ws = vscode.workspace.workspaceFolders?.[0];
-  const root = ws?.uri.fsPath ?? path.join(context.extensionPath, '..');
+  const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
+  const repos: { rootUri: vscode.Uri }[] = gitExtension?.getAPI(1)?.repositories ?? [];
+  // Pick the repo whose root best contains the workspace folder — avoids
+  // picking a sibling repo when multiple repos live under the same parent.
+  const wsPath = ws?.uri.fsPath ?? '';
+  const matchedRepo = repos
+    .filter(r => wsPath.startsWith(r.rootUri.fsPath))
+    .sort((a, b) => b.rootUri.fsPath.length - a.rootUri.fsPath.length)[0]
+    ?? repos[0];
+  const repoRoot = matchedRepo?.rootUri?.fsPath;
+  const root = repoRoot ?? ws?.uri.fsPath ?? path.join(context.extensionPath, '..');
 
   // ── Core path: resolve harnessRoot directly from config ──────────────────
   // This must NOT depend on ProxyController so @harness works with zero proxy
