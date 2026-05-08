@@ -1,5 +1,17 @@
 ﻿
 ---
+## [2026-05-08] CI green — Rust proxy builds on Windows and Linux
+
+**Target:** `proxy-rust/` (GitHub Actions build-proxy workflow)
+
+**Root causes of CI failures:**
+1. Branch filter said `main`; repo uses `master`. Fixed to `["master","main"]`.
+2. `reqwest 0.12` with `rustls-tls` feature pulled in `ring 0.17` → NASM required. Switched to `native-tls` (Schannel on Windows, OpenSSL on Linux). No NASM needed.
+3. Source files `jcs.rs`, `ledger.rs`, `main.rs` were saved in Windows-1252 encoding (byte `0x97` = em-dash). Rust requires valid UTF-8. Re-encoded all three files as UTF-8.
+
+**Result:** Build #5 — both `Build (Windows x86_64)` and `Build (Linux x86_64)` passed. Artifacts `harness-proxy.exe` and `harness-proxy` produced.
+
+---
 ## [2026-05-08] Dumb-reader extension built, Rust proxy source committed, docs updated
 
 **Target:** `harness-protocol` (whole repo)
