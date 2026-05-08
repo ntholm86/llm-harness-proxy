@@ -2,10 +2,10 @@ name: Build Rust Proxy
 
 on:
   push:
-    branches: ["main"]
+    branches: ["master", "main"]
     paths: ["proxy-rust/**"]
   pull_request:
-    branches: ["main"]
+    branches: ["master", "main"]
     paths: ["proxy-rust/**"]
   workflow_dispatch:
 
