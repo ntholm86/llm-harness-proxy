@@ -1,0 +1,73 @@
+name: Build Rust Proxy
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["proxy-rust/**"]
+  pull_request:
+    branches: ["main"]
+    paths: ["proxy-rust/**"]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build (Windows x86_64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            proxy-rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('proxy-rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        working-directory: proxy-rust
+        run: cargo build --release
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-proxy-windows
+          path: proxy-rust/target/release/harness-proxy.exe
+          if-no-files-found: error
+
+  build-linux:
+    name: Build (Linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            proxy-rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('proxy-rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        working-directory: proxy-rust
+        run: cargo build --release
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-proxy-linux
+          path: proxy-rust/target/release/harness-proxy
+          if-no-files-found: error

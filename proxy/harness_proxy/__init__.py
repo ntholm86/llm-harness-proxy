@@ -1,1 +1,0 @@
-"""Harness Protocol MVP proxy."""
