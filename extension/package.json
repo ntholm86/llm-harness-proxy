@@ -1,0 +1,59 @@
+{
+  "name": "harness-protocol-viewer",
+  "displayName": "Harness Protocol Viewer",
+  "description": "Sidebar viewer for Harness Protocol ledger sessions. Read-only. Zero recording logic.",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Harness Protocol",
+      "properties": {
+        "harness.root": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the harness root directory (the folder containing .harness/). Leave empty to use the first workspace folder."
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "harnessLedger",
+          "name": "Harness Ledger"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "harness.refresh",
+        "title": "Harness: Refresh Ledger",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "harness.openEntry",
+        "title": "Harness: Open Entry"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "harness.refresh",
+          "when": "view == harnessLedger",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
