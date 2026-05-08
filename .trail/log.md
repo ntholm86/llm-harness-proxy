@@ -1,5 +1,30 @@
 ﻿
 ---
+## [2026-05-08] [!REVERSAL] Architectural reset — delete extension + Python proxy, build Rust proxy + CI
+**Target:** `harness-protocol` (whole repo)
+**Operator ask:** Delete VS Code extension, delete Python proxy, set up GitHub Actions for Rust proxy.
+
+**[!REVERSAL] Root cause of deletion:**
+`chatParticipant.ts` violated the founding principle of the harness: *the recorder must sit outside the agent*. The extension was both the agent responding to the user AND the recorder writing to the ledger. Fail-closed was structurally impossible — if the extension crashed mid-response the response was already delivered. Tool calls were discarded; only the final reply was stored in `reason`. The ledger did not record reasoning, it recorded output. Observable Autonomy was not achieved.
+
+**[!DECISION]** Delete both the VS Code extension and the Python proxy. The correct architecture:
+- **Rust proxy** (`proxy-rust/`) — dumb HTTP gate outside the agent. Intercepts `/v1/chat/completions` and `/v1/messages`. Writes ledger entry (JCS SHA-256 hash chain, ULID session key, fsync fail-closed) BEFORE forwarding response. Response is discarded if ledger write fails.
+- **VS Code extension** (to be built) — dumb reader only. Reads `.harness/sessions/*.jsonl`. No recording logic whatsoever.
+
+**Actions taken:**
+- `git rm -rf extension/` — 13 source files deleted
+- `git rm -r proxy/` — Python proxy deleted
+- `.github/workflows/build-proxy.yml` created — builds `harness-proxy.exe` (Windows) and `harness-proxy` (Linux) as release artifacts via GitHub Actions
+- `git remote` updated to renamed repo: `https://github.com/ntholm86/LLM-harness-protocol.git`
+- Committed as `73dbef3`: "remove: delete VS Code extension and Python proxy"
+
+**State after this entry:**
+- `proxy-rust/` source is complete (Cargo.toml, main.rs, ledger.rs, jcs.rs, ulid.rs)
+- Rust proxy cannot compile locally (no `link.exe`) — CI will be first compile verification
+- New dumb-reader VS Code extension: not yet started
+- SPEC.md and `.trail/vision.md` reflect correct architecture
+
+---
 ## [2026-05-08] Improve (Kaizen run): fix broken verifyChain + unify LedgerEntry — v0.1.12
 **Target:** `extension/src/ledgerProvider.ts`
 **Operator ask:** "Run the Kaizen skill on the harness-protocol repo."
