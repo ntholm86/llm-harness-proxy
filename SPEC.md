@@ -262,6 +262,30 @@ The following are explicitly outside the scope of this specification:
 
 ---
 
+## 15. Reference implementations
+
+Two reference implementations are maintained in this repository:
+
+### 15.1 Proxy (`proxy-rust/`)
+
+A Rust binary implementing the invisible MITM proxy deployment model (§1).
+
+- Listens on `127.0.0.1:8080` by default.
+- Environment variables: `HARNESS_ROOT` (ledger directory, default `.harness/`), `HARNESS_UPSTREAM` (upstream API base URL, default `https://api.anthropic.com`).
+- Implements §4 entry format, §5 hash chain, §6 `in` field, §8 storage layout, §9 write semantics (fail-closed, `fsync` before response released).
+- Conformance tier: **L2**.
+- Pre-built binaries (`harness-proxy.exe` / `harness-proxy`) are produced by CI at `.github/workflows/build-proxy.yml`.
+
+### 15.2 VS Code extension (`extension/`)
+
+A TypeScript VS Code extension implementing a read-only sidebar viewer.
+
+- Reads `<harness.root>/.harness/sessions/*.jsonl` and displays sessions, entries, and fields in the Explorer sidebar.
+- Zero recording logic. Zero network calls. Purely a display layer.
+- Configured via `harness.root` VS Code setting (absolute path to the directory that contains `.harness/`).
+
+---
+
 ## 14. Normative references
 
 - RFC 2119 — Key words for use in RFCs to Indicate Requirement Levels.
