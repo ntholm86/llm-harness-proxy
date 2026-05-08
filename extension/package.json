@@ -2,7 +2,7 @@
   "name": "harness-protocol",
   "displayName": "Harness Protocol",
   "description": "Architectural Constraint for LLM agents — fail-closed cryptographic ledger of every model interaction.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "ntholm86",
   "license": "MIT",
   "repository": {
@@ -117,23 +117,13 @@
         },
         "harness.proxy.autoStart": {
           "type": "boolean",
-          "default": true,
-          "description": "Start the proxy automatically when VS Code opens this workspace."
+          "default": false,
+          "description": "Start the proxy automatically when VS Code opens this workspace. Disabled by default — the @harness chat participant works without the proxy."
         },
         "harness.proxy.injectEnv": {
           "type": "boolean",
-          "default": true,
-          "description": "Inject OPENAI_BASE_URL / ANTHROPIC_BASE_URL into the integrated terminal so child processes are harnessed."
-        },
-        "harness.model.name": {
-          "type": "string",
-          "default": "gpt-4o-mini",
-          "description": "Model name sent to the upstream API (e.g. gpt-4o, claude-3-7-sonnet-20250219, grok-3)."
-        },
-        "harness.model.upstreamUrl": {
-          "type": "string",
-          "default": "https://api.openai.com",
-          "description": "Base URL of the upstream API. The proxy routes to this host via x-harness-upstream."
+          "default": false,
+          "description": "Inject OPENAI_BASE_URL / ANTHROPIC_BASE_URL into the integrated terminal so child processes are harnessed. Only needed when using the proxy path."
         }
       }
     }
