@@ -58,9 +58,12 @@ async function handleRequest(
 
       const lmMessages: vscode.LanguageModelChatMessage[] = [];
       let sid = "";
-      // Make regex more permissive to line endings and whitespace to ensure it
-      // actually catches the footer we append, regardless of how VS Code normalizes it.
-      const footerRegex = /[\r\n]*---\r?\n\*Harnessed.*session \`([A-Z0-9]{26})\`.*\*/;
+      // Match the footer we append - very permissive on whitespace
+      const footerRegex = /\*Harnessed[^*]*session\s+`([A-Z0-9]{26})`[^*]*\*/;
+
+      // Diagnostic: count history items and capture last assistant text snippet
+      const historyCount = chatContext.history.length;
+      let lastAssistantSnippet = "";
 
       for (const turn of chatContext.history) {
         if (turn instanceof vscode.ChatRequestTurn) {
@@ -69,12 +72,13 @@ async function handleRequest(
           let text = turn.response
             .map((r) => r instanceof vscode.ChatResponseMarkdownPart ? r.value.value : "")
             .join("");
-          
+
           if (text) {
+            lastAssistantSnippet = text.slice(-200); // last 200 chars
             const match = text.match(footerRegex);
             if (match) {
               sid = match[1];
-              text = text.replace(footerRegex, "");
+              text = text.replace(footerRegex, "").replace(/\n*---\n*$/, "");
             }
             lmMessages.push(vscode.LanguageModelChatMessage.Assistant(text));
           }
@@ -85,8 +89,18 @@ async function handleRequest(
         sid = newUlid();
       }
 
-      // DEBUG: Let's dump what we actually extracted from history to find out why it failed
-      stream.markdown(`*(Debug) Extracted sid from history: \`${sid}\`*\n\n`);
+      // Discover available tools so the model can actually do work (read files,
+      // run commands, etc) instead of just hallucinating tool-call markdown.
+      const availableTools = vscode.lm.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      }));
+
+      // DEBUG: surface what we actually have
+      stream.markdown(
+        `*(Debug) history=${historyCount} turns | sid=\`${sid}\` | tools=${availableTools.length} | last-assistant-tail: \`${lastAssistantSnippet.replace(/\n/g, "\\n").slice(-80)}\`*\n\n`,
+      );
 
       // Resolve #file / #selection / #codebase references attached to this
       // request and prepend their content so the model has full workspace
