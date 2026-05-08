@@ -1,0 +1,4 @@
+# Ensure Rust source files are always stored as LF UTF-8 in git
+*.rs text eol=lf working-tree-encoding=UTF-8
+*.toml text eol=lf
+*.md text eol=lf
