@@ -1,19 +1,10 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
+import { resolveHarnessRoot } from './harnessRoot';
+import { LedgerEntry, hashEntry } from './ledgerWriter';
 
-export interface LedgerEntry {
-  v: number;
-  seq: number;
-  sid: string;
-  ts: string;
-  model: string;
-  in: string;
-  reason: string;
-  act: unknown;
-  prev: string;
-}
+export type { LedgerEntry };
 
 export class LedgerProvider
   implements vscode.TreeDataProvider<LedgerNode>, vscode.Disposable
@@ -23,25 +14,35 @@ export class LedgerProvider
   >();
   readonly onDidChangeTreeData = this._onDidChange.event;
   private watcher: fs.FSWatcher | null = null;
+  private watchedDir: string | null = null;
 
-  constructor(private readonly sessionsDir: string) {
+  constructor(private readonly extensionPath: string) {
     this.ensureWatch();
   }
 
+  private resolveSessionsDir(): string {
+    return path.join(resolveHarnessRoot(this.extensionPath), 'sessions');
+  }
+
   private ensureWatch() {
+    const sessionsDir = this.resolveSessionsDir();
+    if (sessionsDir === this.watchedDir) { return; }
+    this.watcher?.close();
+    this.watchedDir = sessionsDir;
     try {
-      fs.mkdirSync(this.sessionsDir, { recursive: true });
+      fs.mkdirSync(sessionsDir, { recursive: true });
       this.watcher = fs.watch(
-        this.sessionsDir,
+        sessionsDir,
         { persistent: false },
         () => this.refresh(),
       );
     } catch (e) {
-      // workspace may not exist yet — ignore
+      // directory may not exist yet — ignore
     }
   }
 
   refresh(): void {
+    this.ensureWatch(); // re-resolve path on every refresh
     this._onDidChange.fire(undefined);
   }
 
@@ -60,11 +61,12 @@ export class LedgerProvider
   }
 
   private listSessions(): LedgerNode[] {
-    if (!fs.existsSync(this.sessionsDir)) return [];
+    const sessionsDir = this.resolveSessionsDir();
+    if (!fs.existsSync(sessionsDir)) return [];
     const files = fs
-      .readdirSync(this.sessionsDir)
+      .readdirSync(sessionsDir)
       .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => path.join(this.sessionsDir, f))
+      .map((f) => path.join(sessionsDir, f))
       .sort(
         (a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs,
       );
@@ -150,17 +152,7 @@ export function verifyChain(entries: LedgerEntry[]): boolean[] {
   for (const e of entries) {
     const ok = e.prev === expectedPrev;
     result.push(ok);
-    expectedPrev = 'sha256:' + sha256OfEntry(e);
+    expectedPrev = hashEntry(e);
   }
   return result;
-}
-
-function sha256OfEntry(e: LedgerEntry): string {
-  // We don't have JCS in TS here; the chain check uses the *recorded* prev
-  // for now. A future iteration will add JCS in TS for full local re-hash.
-  // We at least confirm linear continuity vs. the previously-recorded hash.
-  return crypto
-    .createHash('sha256')
-    .update(JSON.stringify(e))
-    .digest('hex');
 }

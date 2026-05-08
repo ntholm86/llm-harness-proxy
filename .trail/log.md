@@ -1,5 +1,30 @@
 ﻿
 ---
+## [2026-05-08] Improve (Kaizen run): fix broken verifyChain + unify LedgerEntry — v0.1.12
+**Target:** `extension/src/ledgerProvider.ts`
+**Operator ask:** "Run the Kaizen skill on the harness-protocol repo."
+
+**Lenses applied:**
+- *Inconsistency:* `LedgerEntry` interface declared in both `ledgerWriter.ts` and `ledgerProvider.ts` — identical at time of writing, silent divergence risk over time.
+- *Correctness (dominant finding):* `verifyChain` used `sha256(JSON.stringify(e))` to recompute expected prev-hashes; `appendEntry` writes `sha256(JCS(e))`. JSON.stringify is not deterministic; JCS canonicalizes key order. The two algorithms produce different output for the same entry. Result: `verifyChain` returns `false` for every entry after the first in any multi-entry chain. The command `harness.verifyChain` silently lied about chain integrity. The comment in the code admitted this: *"We don't have JCS in TS here; the chain check uses the recorded prev for now."*
+- *Waste:* `sha256OfEntry` function existed only to perpetuate broken verification. `crypto` import in `ledgerProvider.ts` was only used by that function.
+
+**[!DECISION]** Single change: fix `verifyChain` to use `hashEntry` from `ledgerWriter.ts` (JCS-based). Remove `sha256OfEntry`, remove duplicate `LedgerEntry` interface, remove `crypto` import. `LedgerEntry` is now sourced exclusively from `ledgerWriter.ts` and re-exported by `ledgerProvider.ts` for backward compatibility.
+
+**Prediction:** `verifyChain` returns `true` for every entry in a valid chain. `harness.verifyChain` command reports honest integrity. No callers break — neither `extension.ts` nor `chatParticipant.ts` imports `LedgerEntry` by name from `ledgerProvider`. Compile is clean.
+
+**Verification:** `tsc -p . --noEmit` — zero errors. `vsce package` — 10 files, 14.9 KB, zero warnings. `harness-protocol-0.1.12.vsix` produced. Package.json bumped from 0.1.11 to 0.1.12 (the 0.1.11→0.1.12 bump was deferred from the prior harnessRoot.ts session; the filename mismatch is now resolved).
+
+**Reflection:**
+- *Model claim:* The extension's write path and verify path now share a single hash function via a single source of truth for both the ledger format (`ledgerWriter.ts`) and the root resolution (`harnessRoot.ts`). The `harness.verifyChain` command can now be trusted.
+- *Blind spot:* Correctness is compiler-verified, not runtime-verified. `verifyChain` has not been run against a real session file in a live install. The adversarial contract (torn writes, concurrent sessions, disk-full) remains untested with 0 automated tests for the TypeScript ledger path.
+- *Imagined reader pushback:* "Why was this caught in a Kaizen run and not when verifyChain was written?" No tests, and the per-iteration trail discipline was absent — the comment was left as tech debt rather than flagged as a broken contract.
+
+**[!REALIZATION]** Three iterations of real work (v0.1.10: ULID 26-char fix; v0.1.11: tool forwarding + session continuity; v0.1.12: harnessRoot.ts shared module) are absent from this trail. The `prev` links are broken — this entry connects to v0.1.9 with a gap in between. Retrospect's diagnosis ("built deeply, recorded shallowly") is confirmed again in the same session. The trail is the evidence chain the harness is meant to protect; if its own development is unrecorded, the credibility claim is hollow.
+
+**[!REALIZATION]** `package.json` was at 0.1.11 while the harnessRoot.ts VSIX was named 0.1.12 via the `-o` flag override. The version in the manifest and the file on disk were inconsistent. Fixed as part of this entry — `package.json` is now 0.1.12, matching the VSIX filename.
+
+---
 ## [2026-05-07] Improve: .vsix packaging — first distributable build
 **Target:** `extension/` packaging via `@vscode/vsce`
 
