@@ -102,3 +102,40 @@ The operator requested the formal execution of the ision skill before proceedin
 
 **Reflection:**
 We have successfully transitioned from the theoretical realm of the manifesto repo into the execution realm of harness-protocol. The constraint to "eat our own dog food" is formally established: our race is to build the harness so we can use the harness to finish the harness.
+
+---
+## [2026-05-09] Improve: Extension — strip to minimal working core
+**Target:** `extension/` — full audit for dead code, stale artefacts, misleading defaults
+**Operator intent:** "Finished means someone runs the installer and starts using the extension. No bloat, no dead code."
+
+**Lenses applied:**
+- *Waste:* `proxyController.ts` already deleted from `src/` but `proxyController.js.map` remained in `out/` — orphaned artefact shipping inside the `.vsix`.
+- *Waste:* `harness.model.name` + `harness.model.upstreamUrl` config keys defined in `package.json` but never read in any source file — deleted.
+- *Waste:* `harness.verifyChain` was a stub — only counted files, never called `verifyChain()`. Fixed.
+- *Inconsistency:* `autoStart: true` + `injectEnv: true` defaults made the proxy path feel mandatory. Flipped to `false`.
+- *Inconsistency:* `ProxyController` wired into activation before the chat participant — proxy failure could block `@harness`. Decoupled.
+- *Waste:* README described old proxy-first design. Rewritten to describe actual behaviour.
+
+**[!DECISION]** Single config key retained: `harness.root`. Everything else removed as dead weight.
+
+**[!DECISION]** `ProxyController` is now unreachable from `extension.ts`. The "harness off" status bar it owned is gone entirely from the installed extension.
+
+**Prediction:** Fresh install of `0.1.9.vsix` -> no Python startup, no status bar, no output channel noise. `@harness` responds immediately in Copilot Chat.
+
+**Actions:**
+- Deleted `harness.model.name` + `harness.model.upstreamUrl` from `package.json`
+- Fixed `harness.verifyChain` to call `verifyChain()` + `readEntries()` properly
+- Flipped `autoStart` + `injectEnv` defaults to `false`
+- Decoupled `harnessRoot` resolution from `ProxyController` in `extension.ts`
+- Rewrote `README.md` with correct install guide and feature description
+- Deleted orphaned `out/proxyController.js.map`
+- Rebuilt `harness-protocol-0.1.9.vsix` — 9 files, 14.04 KB, zero warnings
+
+**Verification:** `tsc -p ./` clean. `vsce package` — 9 files, 14.04 KB. `src/` — 4 files only, all live.
+
+**Reflection:**
+- *Model claim:* The extension is now genuinely minimal. Every file in `src/` is used. Every default is safe for a fresh install. The remaining gap: verify ledger writes end-to-end on a live install.
+- *Blind spot:* `ledgerWriter.ts` fail-closed contract never exercised under adversarial conditions (disk full, torn write, concurrent sessions).
+- *Imagined reader pushback:* "You still haven't verified that `@harness` actually writes a ledger entry on a live install of `0.1.9.vsix`." Correct — that is the next falsifiable test.
+
+**[!REALIZATION]** The "harness off" status bar that confused the operator was owned entirely by `ProxyController`. With `ProxyController` absent from compiled output, the status bar is gone. The confusion was a direct symptom of dead code shipping in the installed extension.
