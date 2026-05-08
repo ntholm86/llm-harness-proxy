@@ -164,3 +164,34 @@ We have successfully transitioned from the theoretical realm of the manifesto re
 - *Imagined reader pushback:* "You still haven't verified that `@harness` actually writes a ledger entry on a live install of `0.1.9.vsix`." Correct — that is the next falsifiable test.
 
 **[!REALIZATION]** The "harness off" status bar that confused the operator was owned entirely by `ProxyController`. With `ProxyController` absent from compiled output, the status bar is gone. The confusion was a direct symptom of dead code shipping in the installed extension.
+
+---
+## [2026-05-19] Vision: foundational violation surfaced — architecture corrected
+**Target:** harness-protocol — full project arc
+**Operator ask:** "Run the vision skill. Make sure this is recorded."
+
+**Signal gathered:**
+- Operator confirmed: Observable Autonomy means every autonomous action, thought, reasoning — everything — is logged. Word-by-word, thought-by-thought. Like a git history for its domain.
+- Operator confirmed: the harness must sit **outside** the agent — the agent is structurally incapable of receiving a response unless the ledger is written first.
+- Operator confirmed: if the chatParticipant is deciding what to record, we are violating the principle this exact application is trying to solve.
+- Operator confirmed: the proxy was the correct architecture all along. The extension was a pragmatic detour that introduced the violation.
+- Operator confirmed: ambient recording (silent always-on, no @harness invocation) is the real destination — not possible with current VS Code APIs, accepted for v1.
+
+**[!VIOLATION CONFIRMED]** chatParticipant.ts is the agent AND the recorder in the same process. The reason field in every ledger entry is the final reply text, not reasoning. Tool calls, intermediate decisions, and thinking steps are discarded before the ledger sees them. The fail-closed guarantee is broken by architecture.
+
+**[!DECISION]** Vision.md updated with:
+1. The foundational principle stated explicitly — dumb pipe, append-only, zero decisions about what matters
+2. Roles clarified — proxy is the enforcer, extension is the viewer
+3. Corrected priority order — fix proxy first, then remove recording logic from chatParticipant.ts
+4. Ambient recording noted as future milestone
+
+**Reflection:**
+- The proxy was abandoned because of Python dependency friction. But in abandoning it we silently abandoned the core guarantee. The extension was celebrated as working while the founding principle was being violated.
+- The correct next move is: fix the proxy (ModuleNotFoundError: No module named harness_proxy), then reduce the extension to viewer-only.
+- The chatParticipant.ts recorder is not just incomplete — it is architecturally wrong. Improving it would deepen the violation.
+
+**What is still open:**
+1. Fix proxy — harness_proxy module not found
+2. Remove recording logic from chatParticipant.ts — extension becomes viewer only
+3. Full stream capture in proxy — every token verbatim
+4. Ambient recording — future VS Code middleware API
