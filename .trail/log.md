@@ -1,5 +1,51 @@
 ﻿
 ---
+## [2026-05-14] Architectural clarity session — proxy solves integrity AND faithfulness
+
+**Target:** `.trail/vision.md` (updated), this trail entry
+
+**Context:** Extended conversation session covering LinkedIn outreach, competitor analysis (Mark Edmondson / AILANG, Raza Sharif / IETF drafts), and the relationship between the skills suite, the proxy harness, and the open interpretability problem.
+
+**[!REALIZATION] The proxy solves two distinct problems, not one**
+
+Prior framing treated the proxy as an integrity layer on top of the skills suite — the same goal, more structurally enforced. This session surfaced a more precise claim:
+
+*Problem 1 — Integrity:* The skills suite asks the agent to write its own trail entry. The proxy removes that option entirely. The agent never touches the ledger; the proxy intercepts and writes before the response is released to the caller. Author-separation is structural, not procedural.
+
+*Problem 2 — Faithfulness:* Even with pre-commit prediction (skills suite), the stated reasoning may not reflect actual internal computation. The Turpin et al. finding is that CoT can be plausible and wrong even in real time, not just retrospectively. The proxy intercepts the raw MCP/API response payload, which contains the model's extended thinking tokens — the scratchpad the model generates before producing its final response. These tokens are not a summary the model composed for the trail. They are the actual computation as it streamed, captured before the agent has any opportunity to compose a narrative around them.
+
+**[!DECISION]** The proxy's specification must explicitly require capture of thinking tokens / extended reasoning blocks from the raw stream, not just tool calls and final responses. SPEC.md needs a section on this.
+
+**Competitive landscape — positioned clearly:**
+
+| Layer | Who | What |
+|---|---|---|
+| Accountability governance | Manifesto (PEA) | On what basis does a human remain responsible |
+| Reasoning record — faithfulness | This proxy | Thinking tokens verbatim from raw stream |
+| Reasoning record — integrity | This proxy | Agent cannot author its own trail |
+| Reasoning record — mitigations | Skills suite | Pre-commit prediction, reversal density, adversarial audit |
+| Action record integrity | Raza Sharif (IETF drafts) | Cryptographic proof of tamper-resistance |
+| Action record content | Mark Edmondson (AILANG) | Structured traces of execution-level effects |
+| Model provenance | Raza Sharif | Training data → weights → deployment → inference chain |
+
+Raza and the proxy are complementary, not competing: his cryptographic envelope around the proxy's captured stream would be the strongest possible combination. He is post-hoc tamper detection; the proxy is pre-hoc author separation.
+
+**Ceiling acknowledged:**
+
+Thinking tokens are still generated tokens — not a direct read of internal weights or activation patterns. Whether they faithfully reflect internal computation is an open research question. Anthropic's interpretability work (sparse autoencoders, circuit tracing) is the frontier; it cannot currently produce a causal account of a specific frontier-model inference at production scale. This ceiling is not a design failure — it is the correct scope boundary, and it is shared by every approach in this space.
+
+**Actions taken this session:**
+- `.trail/vision.md` updated with the two-problem framing and the remaining ceiling — commit `de80a5c`
+
+**Open from this session:**
+- SPEC.md needs a section explicitly specifying thinking-token / reasoning-block capture as a required field in the ledger schema
+- The distinction between integrity and faithfulness should be surfaced in README.md
+
+*Trigger evaluation:*
+- *Recurring finding-class:* not fired
+- *Vision-level direction change:* not fired — vision updated to reflect a sharper articulation of existing direction, not a change in destination
+
+---
 ## [2026-05-08] CI green — Rust proxy builds on Windows and Linux
 
 **Target:** `proxy-rust/` (GitHub Actions build-proxy workflow)
