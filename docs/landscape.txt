@@ -1,0 +1,157 @@
+================================================================================
+  THE POST-HOC RATIONALIZATION PROBLEM — TWO PARTS, ONE STACK
+================================================================================
+
+
+  THE TWO PROBLEMS — WHY THEY ARE DISTINCT
+  -----------------------------------------
+
+  +---------------------------+        +---------------------------+
+  |                           |        |                           |
+  |       INTEGRITY           |        |       FAITHFULNESS        |
+  |                           |        |                           |
+  |  Can the agent edit       |        |  Does the stated          |
+  |  its own record?          |        |  reasoning reflect the    |
+  |                           |        |  actual computation?      |
+  |                           |        |                           |
+  |  If yes -> not evidence.  |        |  If no -> evidence of     |
+  |  Just testimony.          |        |  a story, not a thought.  |
+  |                           |        |                           |
+  +-------------+-------------+        +-------------+-------------+
+                |                                    |
+                | solved by:                         | solved by:
+                | author-separation                  | capturing thinking
+                | (proxy intercepts                  | tokens from the raw
+                | before agent sees                  | stream, not a
+                | response)                          | self-summary
+                v                                    v
+       +-----------------+                  +-----------------+
+       |    STRUCTURAL   |                  |   CLOSEST       |
+       |    GUARANTEE    |                  |   AVAILABLE     |
+       |                 |                  |   SIGNAL        |
+       +-----------------+                  +-----------------+
+
+
+================================================================================
+
+
+  THE STACK — WHO SOLVES WHAT
+  ----------------------------
+
+  +----------------------------------------------------------------+
+  |  ACCOUNTABILITY GOVERNANCE                                     |
+  |  ............................................................ |
+  |  On what basis does a human remain responsible for AI work?    |
+  |                                                                |
+  |  >>> NILS HOLMAGER -- Principles of Earned Autonomy (manifesto)|
+  +----------------------------------------------------------------+
+  |  REASONING RECORD -- FAITHFULNESS                              |
+  |  ............................................................ |
+  |  Capture thinking tokens verbatim from the raw inference       |
+  |  stream, before the agent composes a narrative around them.    |
+  |                                                                |
+  |  >>> NILS HOLMAGER -- harness-protocol (proxy)                 |
+  +----------------------------------------------------------------+
+  |  REASONING RECORD -- INTEGRITY                                 |
+  |  ............................................................ |
+  |  Agent structurally cannot author or edit its own trail.       |
+  |  Author-separation enforced at the infrastructure boundary.    |
+  |                                                                |
+  |  >>> NILS HOLMAGER -- harness-protocol (proxy)                 |
+  +----------------------------------------------------------------+
+  |  REASONING RECORD -- PROMPT-LEVEL MITIGATIONS                  |
+  |  ............................................................ |
+  |  Pre-commit prediction, reversal density, adversarial audit.   |
+  |  Procedural discipline rather than structural guarantee.       |
+  |                                                                |
+  |  >>> NILS HOLMAGER -- skills suite (PEA)                       |
+  +----------------------------------------------------------------+
+  |  ACTION RECORD -- INTEGRITY                                    |
+  |  ............................................................ |
+  |  Cryptographic proof the record was not tampered with.         |
+  |  ECDSA signatures, hash chains, post-hoc tamper detection.     |
+  |                                                                |
+  |  >>> RAZA SHARIF -- IETF draft-sharif-agent-audit-trail        |
+  +----------------------------------------------------------------+
+  |  ACTION RECORD -- CONTENT                                      |
+  |  ............................................................ |
+  |  Structured traces of every effect, tool call, retry           |
+  |  at the code execution level. Deterministic, replayable.       |
+  |                                                                |
+  |  >>> MARK EDMONDSON -- AILANG / Sunholo                        |
+  +----------------------------------------------------------------+
+  |  MODEL PROVENANCE                                              |
+  |  ............................................................ |
+  |  Cryptographic chain: training data -> weights -> deployment   |
+  |  -> inference output. Per-inference signing.                   |
+  |                                                                |
+  |  >>> RAZA SHARIF -- IETF draft-sharif-ai-model-lifecycle       |
+  +----------------------------------------------------------------+
+
+
+================================================================================
+
+
+  THE CEILING -- NAMED HONESTLY
+  ------------------------------
+
+                  +---------------------------------+
+                  |                                 |
+                  |   INTERNAL COMPUTATION          |
+                  |   (weights, activations,        |
+                  |    causal circuits)             |
+                  |                                 |
+                  |   ?  unobservable at scale  ?   |
+                  |                                 |
+                  +----------------+----------------+
+                                   |
+                                   |  generates
+                                   v
+                  +---------------------------------+
+                  |                                 |
+                  |   THINKING TOKENS               |
+                  |   (extended reasoning blocks)   |
+                  |                                 |
+                  |   <-- captured by proxy         |
+                  |       BEST AVAILABLE SIGNAL     |
+                  |                                 |
+                  +----------------+----------------+
+                                   |
+                                   |  produces
+                                   v
+                  +---------------------------------+
+                  |                                 |
+                  |   FINAL RESPONSE                |
+                  |                                 |
+                  |   <-- captured by proxy         |
+                  |   <-- captured by AILANG        |
+                  |   <-- signed by Sharif's chain  |
+                  |                                 |
+                  +----------------+----------------+
+                                   |
+                                   |  agent then writes
+                                   v
+                  +---------------------------------+
+                  |                                 |
+                  |   SELF-REPORTED REASONING       |
+                  |   (the trail entry the agent    |
+                  |    composes after the fact)     |
+                  |                                 |
+                  |   X  most vulnerable to         |
+                  |      post-hoc rationalization   |
+                  |                                 |
+                  +---------------------------------+
+
+
+  Thinking tokens are the closest signal to internal computation
+  currently observable. They are not the computation itself.
+  Whether they faithfully reflect the weights that produced them
+  is an open research question -- Anthropic's interpretability work
+  is the frontier and cannot yet produce a causal account of a
+  specific frontier-model inference at production scale.
+
+  This ceiling is shared by every approach in the stack.
+  It is the correct scope boundary, not a design failure.
+
+
+================================================================================
