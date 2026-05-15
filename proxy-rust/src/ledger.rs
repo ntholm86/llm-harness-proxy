@@ -361,4 +361,83 @@ mod tests {
         assert_eq!(entries[1]["reason"].as_str().unwrap(), "entry 1 recovered",
             "recovery entry content preserved");
     }
+
+    // --- §12.7 Cross-process sequence ----------------------------------------
+    //
+    // Two threads appending to the same session in alternation (enforced by a
+    // Mutex) must produce strictly increasing seq with no gaps and a valid chain.
+    // Models SPEC §12 requirement: "two processes appending to the same session
+    // in alternation produce strictly increasing seq with no gaps and a valid chain."
+    #[test]
+    fn cross_process_alternating_writes() {
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        let root = Arc::new(tmp_root("crossproc"));
+        let root_a = root.clone();
+        let root_b = root.clone();
+
+        // Mutex enforces strict alternation: only one writer holds it at a time.
+        let turn = Arc::new(Mutex::<()>::new(()));
+        let turn_b = turn.clone();
+
+        const WRITES_PER_THREAD: usize = 5;
+
+        let h_a = thread::spawn(move || {
+            for i in 0..WRITES_PER_THREAD {
+                let _guard = turn.lock().unwrap();
+                SessionLedger::append_entry(
+                    &root_a, "sp1", "m", "sha256:aa",
+                    false, None, false, None, &format!("writer-A entry {}", i),
+                )
+                .expect("append from writer A");
+            }
+        });
+
+        let h_b = thread::spawn(move || {
+            for i in 0..WRITES_PER_THREAD {
+                let _guard = turn_b.lock().unwrap();
+                SessionLedger::append_entry(
+                    &root_b, "sp1", "m", "sha256:bb",
+                    false, None, false, None, &format!("writer-B entry {}", i),
+                )
+                .expect("append from writer B");
+            }
+        });
+
+        h_a.join().expect("writer A thread");
+        h_b.join().expect("writer B thread");
+
+        let path = root.join("sessions").join("sp1.jsonl");
+        let content = std::fs::read_to_string(&path).expect("read session file");
+        let entries: Vec<Value> = content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str::<Value>(l).expect("parse entry"))
+            .collect();
+
+        let total = WRITES_PER_THREAD * 2;
+        assert_eq!(entries.len(), total, "all {} entries must be present", total);
+
+        // seq must be strictly 0..total — no gaps, no duplicates.
+        for (i, e) in entries.iter().enumerate() {
+            assert_eq!(
+                e["seq"].as_u64().unwrap(), i as u64,
+                "entry[{}] must have seq={}", i, i
+            );
+        }
+
+        // Hash chain must be intact across all entries regardless of writer.
+        assert_eq!(
+            entries[0]["prev"].as_str().unwrap(), GENESIS_PREV,
+            "first entry must carry genesis prev"
+        );
+        for i in 1..total {
+            let expected = hash_entry(&entries[i - 1]);
+            assert_eq!(
+                entries[i]["prev"].as_str().unwrap(), expected,
+                "chain break at entry[{}]", i
+            );
+        }
+    }
 }

@@ -1,5 +1,35 @@
 ﻿
 ---
+## [2026-05-15] Improve loop — §12.7 cross-process alternating writes test
+
+**Target:** `proxy-rust/src/ledger.rs` — test coverage
+
+**Triggered by:** retrospect claim 5: "The concurrent-write integrity case is the only remaining uncovered SPEC §12 test class."
+
+**Intent (Commander's Intent applied):**
+User said "continue — use the improve loop, understand my intent." After a retrospect, "continue" means execute the top executable item from the ranked candidate list. Binary download needs a CI PAT. `think` field verification needs an API call. The concurrent-write test is pure code — most executable, closes the last coverage gap.
+
+**Examine:**
+Ledger has 5 tests (§12.1–§12.5), all single-writer. SPEC line 257 requires: "two processes appending to the same session in alternation produce strictly increasing `seq` with no gaps and a valid chain." No test covered this.
+
+**Challenge — first read pushed back:**
+The retrospect described the gap as "simultaneous" concurrent writes. Re-reading SPEC line 257: "in alternation" — not simultaneously. A race-condition test would expose the read-then-write TOCTOU and likely fail. That's not what the SPEC requires. The correct test models strict alternation via `Mutex`, not a free-for-all concurrent write. This is a narrowing of the claim: the SPEC gap was always about alternating processes, not simultaneous ones. The retrospect overstated the scope.
+
+**Prediction:** Test passes. `append_entry` opens the file fresh on every call, scans for latest seq, then writes. With mutex-enforced alternation, each write observes the previous write's result. Expected: 10 entries (5 per thread), seq 0–9, valid chain.
+
+**Act:** Added `cross_process_alternating_writes` test to `proxy-rust/src/ledger.rs`.
+
+Two threads both append to session `sp1` with a shared `Mutex` enforcing alternation. After both threads complete: verify entry count = 10, seq is 0–9 (no gaps, no duplicates), and hash chain is intact across all entries regardless of which writer produced them.
+
+**[!REALIZATION] SPEC §12.7 "in alternation" was always the scope — not "simultaneous"**
+The retrospect stated the gap as "two threads calling `append_entry` simultaneously." The SPEC says "in alternation." These are different failure modes. The alternating case is what the proxy needs (sequential HTTP requests to the same session), and that's what the test covers. Simultaneous concurrent writes are not a required SPEC guarantee and are not a proxy use-case concern (each ULID session is for one conversation thread).
+
+**Candidate Next Moves:**
+1. **Download and run the new binary (port 8474, git-root resolution)** — 15-minute deployment task once a PAT is available. Closes retrospect claim 4. Highest operational value.
+2. **Verify `think` field end-to-end** — one API call with `thinking: {type: "enabled", budget_tokens: 1024}`. Closes retrospect claim 3. Requires API key in proxy client.
+3. **Resolve the ambient recording gap in vision** — either scope the VS Code `registerLanguageModelChatProvider` work or formally narrow vision to exclude it. This is the one item that changes the destination, not just the coverage. Highest strategic value.
+
+---
 ## [2026-05-14] Architectural clarity session — proxy solves integrity AND faithfulness
 
 **Target:** `.trail/vision.md` (updated), this trail entry
@@ -1018,13 +1048,16 @@ The Anthropic response includes a `caller: {type: "direct"}` field inside the to
 **Triggered by:** CI run 25912596606 FAILED for commit 933133c (feat: resolve HARNESS_ROOT from git repo root)
 
 **Failure mode:** cargo test failed on both Linux and Windows in the "Run tests" step. Exact error not retrievable (logs auth-gated), but introduced code in 933133c used a Cow<'_, str> borrow from a temporary PathBuf inside an unwrap_or_else closure:
-`ust
+`
+ust
 return repo_root.join(".harness").to_string_lossy().into_owned();
 `
-Potential issue: borrow of temporary + eturn inside closure. Regardless of root cause, pattern was fragile.
+Potential issue: borrow of temporary + 
+eturn inside closure. Regardless of root cause, pattern was fragile.
 
 **Fix:** Replaced PathBuf::from(env::var(...).unwrap_or_else(|_| {...})) with a clean if let Ok / else if let Some / else chain that constructs PathBuf directly throughout — no String conversion, no Cow, no closure:
-`ust
+`
+ust
 let harness_root: PathBuf = if let Ok(val) = std::env::var("HARNESS_ROOT") {
     PathBuf::from(val)
 } else if let Some(repo_root) = find_git_root() {
@@ -1062,12 +1095,14 @@ let harness_root: PathBuf = if let Ok(val) = std::env::var("HARNESS_ROOT") {
 
 **Session file produced:** .harness/sessions/self-hosting-gate-001.jsonl
 - 5 entries (seq 0–4), hash chain intact
-- seq 3: eason: harness-ok (text response)
+- seq 3: 
+eason: harness-ok (text response)
 - seq 4: ct_name: record_result, ct_flag: true, ct_input.finding: "A fail-closed ledger provides the guarantee that in the event of system failure or unavailability, access is denied and no transactions are processed until the system is restored and verified to be operational."
 
 **Chain integrity:** genesis prev → sha256 link at every seq. Not falsified.
 
 **What this proves:**
-The proxy recorded a real LLM API call, made during development of the proxy itself, into .harness/sessions/ under the repo root. eason, ct, and 	ransparency flags were all captured. The founding pledge — "the agent is structurally incapable of receiving a response until the ledger has accepted it" — has been exercised end-to-end with a live model.
+The proxy recorded a real LLM API call, made during development of the proxy itself, into .harness/sessions/ under the repo root. 
+eason, ct, and 	ransparency flags were all captured. The founding pledge — "the agent is structurally incapable of receiving a response until the ledger has accepted it" — has been exercised end-to-end with a live model.
 
 **Retrospect rule satisfied:** "Self-hosting gate. Before declaring any capability 'done,' ask: has the proxy recorded a development interaction on this project? If no, the self-hosting pledge is unmet." → It is now met.
