@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
         .to_string();
 
     let listen = std::env::var("HARNESS_LISTEN")
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+        .unwrap_or_else(|_| "127.0.0.1:8474".to_string());
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))

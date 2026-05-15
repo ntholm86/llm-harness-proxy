@@ -21,16 +21,16 @@ The ledger format is specified in [SPEC.md](./SPEC.md).
 HARNESS_ROOT=/path/to/harness ./harness-proxy
 ```
 
-The proxy listens on `127.0.0.1:8080` by default (`HARNESS_LISTEN` to override).
+The proxy listens on `127.0.0.1:8474` by default (`HARNESS_LISTEN` to override).
 
 **3. Point your LLM client at the proxy:**
 
 ```python
 # OpenAI / Grok
-client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="...")
+client = OpenAI(base_url="http://127.0.0.1:8474/v1", api_key="...")
 
 # Anthropic
-client = Anthropic(base_url="http://127.0.0.1:8080", api_key="...")
+client = Anthropic(base_url="http://127.0.0.1:8474", api_key="...")
 ```
 
 **4. Each call produces a session file:**
@@ -71,7 +71,7 @@ The proxy is a dumb pipe: all request headers (including `Authorization` / `x-ap
 | Variable | Default | Description |
 |---|---|---|
 | `HARNESS_ROOT` | `.harness` | Directory for session files. Created if absent. |
-| `HARNESS_LISTEN` | `127.0.0.1:8080` | Address to bind. |
+| `HARNESS_LISTEN` | `127.0.0.1:8474` | Address to bind. |
 | `UPSTREAM_BASE_URL` | `https://api.openai.com` | Upstream for `/v1/chat/completions`. |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Upstream for `/v1/messages`. |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com` | Upstream for `/v1beta/models/*`. |
@@ -81,7 +81,7 @@ The proxy is a dumb pipe: all request headers (including `Authorization` / `x-ap
 ## How it works
 
 ```
-Client → harness-proxy:8080 → Real LLM API
+Client → harness-proxy:8474 → Real LLM API
                 ↓
          .harness/sessions/<ulid>.jsonl
          (fsync'd before response forwarded)

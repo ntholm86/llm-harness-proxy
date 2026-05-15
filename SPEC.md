@@ -280,7 +280,7 @@ Two reference implementations are maintained in this repository:
 
 A Rust binary implementing the invisible MITM proxy deployment model (§1).
 
-**Listens on** `127.0.0.1:8080` by default (override: `HARNESS_LISTEN`).
+**Listens on** `127.0.0.1:8474` by default (override: `HARNESS_LISTEN`).
 
 **Routes:**
 
@@ -295,7 +295,7 @@ A Rust binary implementing the invisible MITM proxy deployment model (§1).
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `HARNESS_ROOT` | `.harness/` | Ledger root directory |
-| `HARNESS_LISTEN` | `127.0.0.1:8080` | Proxy listen address |
+| `HARNESS_LISTEN` | `127.0.0.1:8474` | Proxy listen address |
 | `UPSTREAM_BASE_URL` | `https://api.openai.com` | OpenAI-compatible upstream base |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Anthropic upstream base |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com` | Gemini upstream base |
