@@ -45,6 +45,7 @@ impl SessionLedger {
         sid: &str,
         model: &str,
         in_hash: &str,
+        think: Option<&Value>,
         reason: &str,
         act: Option<&Value>,
     ) -> Result<EntryMeta> {
@@ -74,6 +75,7 @@ impl SessionLedger {
             "ts": ts,
             "model": model,
             "in": in_hash,
+            "think": think,
             "reason": reason,
             "act": act,
             "prev": prev

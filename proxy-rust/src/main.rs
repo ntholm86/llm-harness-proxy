@@ -111,7 +111,7 @@ async fn openai_handler(
         .await
         .map_err(|e| { error!("upstream error: {e}"); StatusCode::BAD_GATEWAY })?;
 
-    let (reason, act) = extract_openai(&res_bytes);
+    let (reason, think, act) = extract_openai(&res_bytes);
 
     // FAIL-CLOSED: ledger must succeed before response is released.
     let entry = SessionLedger::append_entry(
@@ -119,6 +119,7 @@ async fn openai_handler(
         &sid,
         &model,
         &in_hash,
+        think.as_ref(),
         &reason,
         act.as_ref(),
     )
@@ -185,13 +186,14 @@ async fn anthropic_handler(
         .await
         .map_err(|e| { error!("upstream error: {e}"); StatusCode::BAD_GATEWAY })?;
 
-    let (reason, act) = extract_anthropic(&res_bytes);
+    let (reason, think, act) = extract_anthropic(&res_bytes);
 
     let entry = SessionLedger::append_entry(
         &state.harness_root,
         &sid,
         &model,
         &in_hash,
+        think.as_ref(),
         &reason,
         act.as_ref(),
     )
@@ -230,29 +232,37 @@ async fn forward(
     Ok(res.bytes().await?)
 }
 
-fn extract_openai(bytes: &[u8]) -> (String, Option<Value>) {
-    let Ok(v) = serde_json::from_slice::<Value>(bytes) else { return (String::new(), None) };
+fn extract_openai(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
+    let Ok(v) = serde_json::from_slice::<Value>(bytes) else { return (String::new(), None, None) };
     let reason = v["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("")
         .to_string();
     let act = v["choices"][0]["message"]["tool_calls"].clone();
     let act = if act.is_null() { None } else { Some(act) };
-    (reason, act)
+    // Grok-style reasoning_content. OpenAI o-series exposes only a token count in
+    // usage.completion_tokens_details.reasoning_tokens — content is not returned by
+    // the API. Ceiling: think will be null for standard GPT and OpenAI o-series.
+    let think = v["choices"][0]["message"]["reasoning_content"].clone();
+    let think = if think.is_null() { None } else { Some(think) };
+    (reason, think, act)
 }
 
-fn extract_anthropic(bytes: &[u8]) -> (String, Option<Value>) {
-    let Ok(v) = serde_json::from_slice::<Value>(bytes) else { return (String::new(), None) };
+fn extract_anthropic(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
+    let Ok(v) = serde_json::from_slice::<Value>(bytes) else { return (String::new(), None, None) };
     let mut reason = String::new();
+    let mut think_blocks: Vec<Value> = Vec::new();
     let mut act = None;
     if let Some(content) = v["content"].as_array() {
         for block in content {
             match block["type"].as_str() {
                 Some("text") => { reason = block["text"].as_str().unwrap_or("").to_string(); }
+                Some("thinking") => { think_blocks.push(block.clone()); }
                 Some("tool_use") => { act = Some(block.clone()); }
                 _ => {}
             }
         }
     }
-    (reason, act)
+    let think = if think_blocks.is_empty() { None } else { Some(Value::Array(think_blocks)) };
+    (reason, think, act)
 }
