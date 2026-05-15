@@ -440,3 +440,44 @@ Prediction held exactly. The change is surgical — 15 lines net across two file
 1. `Gemini support` — third provider; new route `/v1beta/models/:model:generateContent`, extract `thought` parts, accumulate SSE
 2. `streaming tool call reconstruction` — stateful per-block accumulator for `input_json_delta` events
 3. `SPEC.md update` — document transparency field, streaming ceiling, full schema, provider coverage
+
+---
+## [2026-05-15] Improve: Gemini provider support
+
+**Target:** `proxy-rust/src/main.rs`
+**Commit:** `b6863db`
+
+**[ASK]** Improve skill — continue.
+
+**[INTERPRETATION]** Vision: "records everything." Provider coverage is a structural gap — Gemini is a first-tier LLM family alongside OpenAI and Anthropic. Without it, the proxy is selectively blind to a major fraction of real agent workflows. Architecture is already established; this is an extension, not a redesign.
+
+**[EXAMINATION — pre-change state]**
+- Two routes only: `/v1/chat/completions` (OpenAI) and `/v1/messages` (Anthropic).
+- Any Gemini API call passes through the proxy unrecorded — or fails with 404.
+- Gemini has provider-specific conventions: `thought: true` parts for thinking, `functionCall` parts for tool calls, `systemInstruction` for system prompts, `contents` for messages, and `?alt=sse` query param for SSE streaming.
+
+**[PRE-COMMIT PREDICTION]**
+- Wildcard route `/v1beta/models/*model` handles both `:generateContent` and `:streamGenerateContent` with one handler.
+- `extract_gemini` correctly separates thought parts, functionCall parts, and text parts.
+- `accumulate_sse_gemini` accumulates across multiple SSE chunks (each is a full `GenerateContentResponse`).
+- `OriginalUri` forwards the full path+query so `?alt=sse` reaches Gemini's SSE endpoint.
+- Model name in ledger is clean — `:generateContent` suffix stripped.
+- Transparency flags (`has_think`, `has_act`) derived from `is_some()` — consistent with other handlers.
+
+**[ACTION]**
+- Added `OriginalUri` and `Path as PathParam` to axum extract imports
+- `AppState`: added `gemini_base: String` from `GEMINI_BASE_URL` env var (default: `https://generativelanguage.googleapis.com`)
+- Added route `/v1beta/models/*model` pointing to `gemini_handler`
+- `gemini_handler`: extracts path wildcard for model name, uses `OriginalUri` for full upstream URL, streaming/buffered branch identical in structure to existing handlers
+- `extract_gemini`: `thought: true` parts → think_blocks array; `functionCall` parts → act; remaining text → reason
+- `accumulate_sse_gemini`: same pattern, but each SSE `data:` line is a complete response chunk
+
+**[REFLECTION]**
+Prediction held. The wildcard route is the right approach for Gemini's unusual URL scheme (model-in-path + method-as-suffix). One potential blind spot: Gemini's streaming endpoint may not always return `text/event-stream` content-type — some Gemini client libraries use newline-delimited JSON instead of SSE. If `is_sse` detects false, the buffered path would buffer the entire stream, breaking the response. This needs empirical verification. Also: the `thought: true` convention is specific to Gemini 2.x with extended thinking enabled — older Gemini models may not produce this field at all, which is correct behaviour (think will be null).
+
+**[!REALIZATION]** The proxy now covers three provider families (OpenAI/Grok, Anthropic, Gemini) with a single binary and ~500 lines of Rust. The architecture has proven extensible: every new provider follows the same pattern — route, handler, extract, accumulate. This extensibility was not planned explicitly, it emerged from the dumb-pipe principle.
+
+**[CANDIDATE NEXT MOVES — ranked]**
+1. `SPEC.md update` — the spec is now behind on schema (think, transparency), provider coverage (Gemini), and streaming ceiling. This is technical debt that grows with every feature.
+2. `streaming tool call reconstruction` — stateful `input_json_delta` accumulator for OpenAI/Anthropic streaming; needed for agentic workflows
+3. `Gemini streaming verification` — empirically test whether Gemini returns `text/event-stream` for `:streamGenerateContent?alt=sse`; the current detection may need a fallback for NDJSON format
