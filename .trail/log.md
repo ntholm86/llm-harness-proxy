@@ -407,3 +407,36 @@ Prediction held. Architecture is clean — the two paths are clearly separated i
 2. `Gemini support` — third provider family; route + extract + accumulate_sse functions
 3. `transparency` metadata field — `{"think": bool, "act": bool}` per ledger entry for ai-steward scoring
 4. `SPEC.md update` — document streaming ceiling, new schema fields, provider notes
+
+---
+## [2026-05-15] Improve: transparency field in ledger entries
+
+**Target:** `proxy-rust/src/ledger.rs`, `proxy-rust/src/main.rs`
+**Commit:** `7da4805`
+
+**[ASK]** Improve skill — continue. Select and implement the next highest-leverage change.
+
+**[INTERPRETATION]** Three candidates from the last trail entry: streaming tool call reconstruction (complex), Gemini support (breadth), transparency metadata field (surgical). The transparency field is the right next move: it is a small, precise change that turns the ledger into a machine-readable signal for ai-steward scoring — any downstream consumer can now check `transparency.think` and `transparency.act` as booleans without parsing content. Cost: trivial. Value: direct enabler for ai-steward.
+
+**[EXAMINATION — pre-change state]**
+- Ledger entries contained `think` and `act` fields that were either null or content.
+- ai-steward would have to inspect the content to determine whether reasoning was present — fragile and content-coupled.
+- No explicit machine-readable signal for "this exchange had visible thinking" vs "this model gave no reasoning trace."
+
+**[PRE-COMMIT PREDICTION]**
+- `append_entry` signature gains `has_think: bool` and `has_act: bool` parameters.
+- Every ledger entry will contain `"transparency": {"think": bool, "act": bool}` between `"in"` and `"think"`.
+- All four call sites (openai buffered, openai streaming, anthropic buffered, anthropic streaming) will compute presence from `Option::is_some()`.
+- No logic change — pure metadata addition. All four paths remain correct.
+
+**[ACTION]**
+- `ledger.rs`: `append_entry` takes `has_think: bool` + `has_act: bool`; entry JSON gains `transparency` object
+- `main.rs`: all four call sites compute `think.is_some()` / `act.is_some()` and pass to `append_entry`
+
+**[REFLECTION]**
+Prediction held exactly. The change is surgical — 15 lines net across two files. The ledger schema is now self-describing: a reader can determine the observability quality of an exchange from the transparency flags alone, without content inspection. This directly enables ai-steward scoring (e.g. "what fraction of exchanges had visible reasoning?").
+
+**[CANDIDATE NEXT MOVES — ranked]**
+1. `Gemini support` — third provider; new route `/v1beta/models/:model:generateContent`, extract `thought` parts, accumulate SSE
+2. `streaming tool call reconstruction` — stateful per-block accumulator for `input_json_delta` events
+3. `SPEC.md update` — document transparency field, streaming ceiling, full schema, provider coverage
