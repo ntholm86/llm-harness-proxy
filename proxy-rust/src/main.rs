@@ -15,7 +15,7 @@ use bytes::Bytes;
 use futures_util::StreamExt as _;
 use ledger::SessionLedger;
 use serde_json::Value;
-use std::{path::PathBuf, str::FromStr, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info};
 
@@ -354,20 +354,18 @@ fn extract_anthropic(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
 }
 
 /// Accumulate reasoning/text/tool content from an OpenAI SSE stream buffer.
-/// Tool call input arrives as JSON delta fragments across multiple events;
-/// we capture the presence marker but not the full reconstructed input —
-/// documented ceiling for this iteration.
+/// Tool call inputs arrive as `arguments` delta fragments across multiple events,
+/// keyed by `tool_calls[*].index`. Reconstructs full tool call array.
 fn accumulate_sse_openai(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
     let text = std::str::from_utf8(buf).unwrap_or("");
     let mut reason = String::new();
     let mut thinking = String::new();
-    let mut has_tool_calls = false;
+    // index -> (id, name, accumulated_arguments_string)
+    let mut tool_calls: HashMap<usize, (String, String, String)> = HashMap::new();
 
     for line in text.lines() {
         if let Some(data) = line.strip_prefix("data: ") {
-            if data.trim() == "[DONE]" {
-                continue;
-            }
+            if data.trim() == "[DONE]" { continue; }
             if let Ok(v) = serde_json::from_str::<Value>(data) {
                 let delta = &v["choices"][0]["delta"];
                 if let Some(c) = delta["content"].as_str() {
@@ -377,31 +375,62 @@ fn accumulate_sse_openai(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
                 if let Some(r) = delta["reasoning_content"].as_str() {
                     thinking.push_str(r);
                 }
-                if !delta["tool_calls"].is_null() {
-                    has_tool_calls = true;
+                if let Some(tcs) = delta["tool_calls"].as_array() {
+                    for tc in tcs {
+                        let idx = tc["index"].as_u64().unwrap_or(0) as usize;
+                        let entry = tool_calls.entry(idx)
+                            .or_insert_with(|| (String::new(), String::new(), String::new()));
+                        if let Some(id) = tc["id"].as_str() {
+                            if entry.0.is_empty() { entry.0 = id.to_string(); }
+                        }
+                        if let Some(name) = tc["function"]["name"].as_str() {
+                            if entry.1.is_empty() { entry.1 = name.to_string(); }
+                        }
+                        if let Some(args) = tc["function"]["arguments"].as_str() {
+                            entry.2.push_str(args);
+                        }
+                    }
                 }
             }
         }
     }
 
     let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
-    // For streaming tool calls, record presence only — full reconstruction is future work
-    let act = if has_tool_calls { Some(Value::String("[tool_calls — see raw stream]".into())) } else { None };
+    let act = if tool_calls.is_empty() {
+        None
+    } else {
+        let mut sorted: Vec<_> = tool_calls.into_iter().collect();
+        sorted.sort_by_key(|(idx, _)| *idx);
+        let arr: Vec<Value> = sorted.into_iter().map(|(_, (id, name, args))| {
+            let arguments = serde_json::from_str::<Value>(&args)
+                .unwrap_or(Value::String(args));
+            serde_json::json!({
+                "id": id,
+                "type": "function",
+                "function": { "name": name, "arguments": arguments }
+            })
+        }).collect();
+        Some(Value::Array(arr))
+    };
     (reason, think, act)
 }
 
 /// Accumulate reasoning/text/tool content from an Anthropic SSE stream buffer.
+/// `input_json_delta` events carry partial JSON fragments for tool inputs;
+/// we accumulate them per content-block index and parse the full JSON at stream end.
 fn accumulate_sse_anthropic(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
     let text = std::str::from_utf8(buf).unwrap_or("");
     let mut reason = String::new();
     let mut thinking = String::new();
-    let mut act: Option<Value> = None;
+    // content block index -> (block Value from content_block_start, accumulated input JSON string)
+    let mut tool_blocks: HashMap<usize, (Value, String)> = HashMap::new();
 
     for line in text.lines() {
         if let Some(data) = line.strip_prefix("data: ") {
             if let Ok(v) = serde_json::from_str::<Value>(data) {
                 match v["type"].as_str() {
                     Some("content_block_delta") => {
+                        let idx = v["index"].as_u64().unwrap_or(0) as usize;
                         match v["delta"]["type"].as_str() {
                             Some("text_delta") => {
                                 if let Some(t) = v["delta"]["text"].as_str() {
@@ -413,12 +442,20 @@ fn accumulate_sse_anthropic(buf: &[u8]) -> (String, Option<Value>, Option<Value>
                                     thinking.push_str(t);
                                 }
                             }
+                            Some("input_json_delta") => {
+                                if let Some(entry) = tool_blocks.get_mut(&idx) {
+                                    if let Some(partial) = v["delta"]["partial_json"].as_str() {
+                                        entry.1.push_str(partial);
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
                     Some("content_block_start") => {
                         if v["content_block"]["type"].as_str() == Some("tool_use") {
-                            act = Some(v["content_block"].clone());
+                            let idx = v["index"].as_u64().unwrap_or(0) as usize;
+                            tool_blocks.insert(idx, (v["content_block"].clone(), String::new()));
                         }
                     }
                     _ => {}
@@ -428,6 +465,29 @@ fn accumulate_sse_anthropic(buf: &[u8]) -> (String, Option<Value>, Option<Value>
     }
 
     let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
+    let act = if tool_blocks.is_empty() {
+        None
+    } else {
+        let mut sorted: Vec<_> = tool_blocks.into_iter().collect();
+        sorted.sort_by_key(|(idx, _)| *idx);
+        let blocks: Vec<Value> = sorted.into_iter().map(|(_, (mut block, input_str))| {
+            let input = if input_str.is_empty() {
+                Value::Object(serde_json::Map::new())
+            } else {
+                serde_json::from_str::<Value>(&input_str)
+                    .unwrap_or(Value::String(input_str))
+            };
+            if let Value::Object(ref mut map) = block {
+                map.insert("input".to_string(), input);
+            }
+            block
+        }).collect();
+        if blocks.len() == 1 {
+            blocks.into_iter().next()
+        } else {
+            Some(Value::Array(blocks))
+        }
+    };
     (reason, think, act)
 }
 
