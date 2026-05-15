@@ -521,3 +521,41 @@ Prediction held. The most important finding during examination: the spec had bee
 1. `streaming tool call reconstruction` — stateful delta accumulator for OpenAI/Anthropic streaming tool calls; needed for agentic workflows; last deferred item from the original candidate list
 2. `Gemini streaming format verification` — empirically confirm whether Gemini returns text/event-stream for streamGenerateContent; possible NDJSON fallback needed
 3. `test suite` — SPEC §12 conformance tests (round-trip, tamper detection, crash recovery) are documented but no test files exist; CI gate is currently zero
+
+---
+## [2026-05-15] Retrospect: post-phase-one-feature-sprint arc read
+
+**Target:** `harness-protocol` — full arc from 2026-05-07 to 2026-05-15
+**Commit:** `2a7a379`
+
+**[SCOPE]** Read the arc from the first retrospect (post-extension-milestone, 2026-05-07) through the five improve iterations of the 2026-05-15 sprint. Determine: whether the prior finding ("built deeply, recorded shallowly") has been resolved; where the loop's attention has concentrated; what the arc reveals that no single iteration surfaced.
+
+**[FRESHNESS GUARD]** No `tools/record.py` in this repo. Trail is the primary source. History and learning artifacts not applicable. Gate: PASS (arc read proceeds directly).
+
+**[ARC-CLAIMS — all falsifiable]**
+
+1. The "built deeply, recorded shallowly" finding from 2026-05-07 is substantially resolved. 10 trail entries, 10 commits, every entry with pre-commit prediction and reflection since then.
+
+2. Every change in the phase-one sprint was a direct application of the dumb-pipe principle with no tradeoffs required. The architecture was stable; the loop filled it in.
+
+3. The proxy's structural extensibility (three providers, same pattern) was emergent from the principle, not designed. The Gemini iteration confirmed this explicitly.
+
+4. The fail-closed ceiling (SSE mode) is honestly documented at every layer — code, trail, spec. No glossing.
+
+5. `[!AVOIDANCE]` Streaming tool call reconstruction has been a top-ranked candidate in three consecutive iterations and has not been implemented. This is avoidance, not deferral. The loop has been routing around the hardest remaining feature.
+
+6. The integrity layer (hash chain, fsync, fail-closed, concurrent access) has never been tested at runtime. Zero test files exist against SPEC §12's eight documented classes. All behavioural claims rest on code review through a remote CI compile gate.
+
+7. The self-hosting pledge is unmet — proxy is built, CI is green, three providers work, and the proxy has never recorded a development interaction on its own codebase. The commitment predates the entire Rust implementation.
+
+8. The loop has been solving faithfulness (capture more, cover more providers) while leaving integrity's verification undone. The core claim of the harness — "structurally incapable of receiving a response until ledger accepted it" — has no test coverage.
+
+**[LOOP-EFFECTIVENESS DIAGNOSIS — arc-level]**
+The prior failure: recorded shallowly. Resolved.
+The new risk: **the loop is iterating on visible features while the core guarantee remains untested.** Feature velocity is real. The credibility gap has moved from "unrecorded" to "untested."
+
+**[CANDIDATE NEXT MOVES — retrospect-derived]**
+1. End-to-end proxy verification — highest leverage; test the actual claim vision makes
+2. SPEC §12 conformance tests — integrity layer test coverage; prerequisite to trusting any behavioural claim
+3. Streaming tool call reconstruction — most avoided item; needed for agentic workflow capture
+4. Self-hosting enactment — credibility test, not a feature; one captured dev session would satisfy the founding pledge
