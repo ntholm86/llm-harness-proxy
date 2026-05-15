@@ -295,3 +295,37 @@ We have successfully transitioned from the theoretical realm of the manifesto re
 2. Remove recording logic from chatParticipant.ts — extension becomes viewer only
 3. Full stream capture in proxy — every token verbatim
 4. Ambient recording — future VS Code middleware API
+
+---
+## [2026-05-15] [!DECISION] Extension deleted permanently — proxy-only architecture
+
+**Target:** `harness-protocol` (whole repo)
+**Operator statement:** "The vscode extension should just be deleted. I no longer think it's required — and now it's just noise in that repo."
+
+**Context gathered this session:**
+- Read all vision.md files across the workspace (ai-steward, harness-protocol, evo+rev platform, skills suite)
+- Examined current proxy-rust state: Rust binary with Axum, two routes (`/v1/chat/completions`, `/v1/messages`), fail-closed ledger, JCS SHA-256 hash chain, compiled `harness-proxy.exe` present in repo root
+- Confirmed: the "Python proxy crashes" item from prior vision entries is stale — Rust implementation superseded it; CI confirmed green (builds on Windows x64 and Linux x64)
+
+**[!DECISION] VS Code extension (`extension/`) deleted permanently**
+The extension was rebuilt on 2026-05-08 as a "dumb viewer" after the chatParticipant violation was surfaced. Today the operator has concluded that the viewer concept itself is not needed — it adds nothing to the core harness value proposition, it is host-process-dependent (VS Code only), and it creates ongoing maintenance surface. The harness does not need a built-in viewer to be useful. The repo's scope narrows to: the Rust proxy, the SPEC, and the ledger format. A viewer, if ever built, is a separate tool.
+
+**[!REALIZATION] Extension kept getting rebuilt after each deletion**
+This is the second full deletion of `extension/` from this repo. First deletion: 2026-05-08 (chatParticipant violation). Rebuild: same day (dumb viewer). Final deletion: today. The recurring pattern was: delete the wrong thing → rebuild a cleaner version. Today's decision breaks the pattern by removing the concept, not just the implementation.
+
+**Architectural decisions confirmed this session:**
+1. **Proxy-only**: `harness-protocol` is a single-purpose external HTTP proxy. No VS Code integration.
+2. **Standalone and detached**: the harness has no knowledge of ai-steward. It intercepts any LLM API traffic from any caller on any project. Someone else can adopt it independently.
+3. **Governance boundary is structural, not policy**: `harness-protocol` and `ai-steward` are separate repos. ai-steward cannot autonomously modify the harness — changes require explicit operator action. This is enforced by repo separation, not by rules inside the code.
+4. **Provider-agnostic confirmed**: two routes already (OpenAI + Anthropic); the proxy forwards to whatever `UPSTREAM_BASE_URL` or `ANTHROPIC_BASE_URL` env vars point to.
+
+**Live gap identified — streaming capture:**
+Current proxy buffers the full response body (`res_bytes`) before writing the ledger entry. This means one entry per exchange, capturing only the final assembled response. Not yet captured: reasoning tokens / thinking blocks as they stream, tool calls mid-stream, partial reply chunks in order. This is the next meaningful work: move from buffered-response capture to full-stream capture (prompt → tool call → tool result → reasoning chunk → reply chunk, verbatim, in order).
+
+**Actions to take next session:**
+1. `rm -rf extension/` from repo
+2. Update `README.md` and `SPEC.md` to remove extension references
+3. Spike streaming capture in proxy-rust
+
+*Trigger evaluation:*
+- *Vision-level direction change:* YES — scope narrowed from proxy+viewer to proxy-only. Vision.md updated this session.

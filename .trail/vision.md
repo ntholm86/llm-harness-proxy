@@ -5,6 +5,8 @@ _Operator-held. Updated by Vision run 2026-05-19 (session: foundational-violatio
 ## The Destination
 This repository is the practical **delivery mechanism** for the Autonomous Agent Principles defined in the manifesto repository. The goal is to build the "Immune System against Revisionism" so any developer can adopt Architectural Constraint with zero friction.
 
+The hard principle everything hangs on: The harness is not a participant — it is a pipe and an append. The agent is structurally incapable of receiving a response until the ledger has accepted it. Fail-closed.
+
 ## The Foundational Principle — confirmed this session
 **Observable Autonomy means every autonomous action, thought, reasoning — everything — is logged. Word-by-word, thought-by-thought. Like a git history for its domain.**
 
@@ -60,3 +62,33 @@ SPEC.md is the single authoritative document for **both** paths. It must formall
 5. Marketplace publish — .vsix submission.
 6. Tests for ledgerWriter.ts — 0 tests currently.
 7. Rust rewrite of proxy — if performance demands it.
+
+---
+
+## [2026-05-15] Direction change — proxy only. Extension gone.
+
+_Updated this session after reading all vision files across the workspace and examining the current proxy-rust source._
+
+**[!DIRECTION CHANGE] The VS Code extension is deleted. Permanently. Not rebuilt.**
+
+The extension was rebuilt on 2026-05-08 as a "dumb viewer" after the chatParticipant violation was confirmed. Today the operator concluded the viewer concept itself is not needed. The harness does not require a built-in UI to deliver its value. The repo's scope is now: the Rust proxy, the SPEC, and the ledger format. Nothing more.
+
+**Scope is now: Rust proxy only.**
+
+`harness-protocol` is a single-purpose external HTTP proxy. It intercepts LLM API traffic, writes a cryptographically hash-chained ledger entry before forwarding the response, and fails closed if the write fails. That is the entire product. It requires no host process, no IDE plugin, no VS Code.
+
+**Standalone and detached — confirmed.**
+
+The harness has no knowledge of ai-steward or any other calling system. Any developer, any project, any provider can point their LLM client's `base_url` at the proxy and get Observable Autonomy for free. The governance boundary between harness-protocol and ai-steward is structural: separate repos, separate ownership, no direct dependency in either direction.
+
+**Stale items retired:**
+- "Python MVP exists but crashes" — superseded by the Rust implementation. CI confirmed green (Windows x64 + Linux x64). `harness-proxy.exe` is already built.
+- "Remove recording logic from chatParticipant.ts" — moot. The extension is gone.
+- "Marketplace publish" — moot. No extension to publish.
+- "Tests for ledgerWriter.ts" — moot. No TypeScript ledger path remains.
+
+**What is still open — revised priority order:**
+1. Delete `extension/` folder from repo, update README.md and SPEC.md to remove extension references.
+2. **Streaming capture** — current proxy buffers full response body before writing one ledger entry. Next meaningful work: capture the full stream verbatim in order (prompt → tool call → tool result → reasoning chunk → reply chunk). This is what closes the faithfulness gap.
+3. SPEC.md section explicitly specifying thinking-token / reasoning-block capture as a required ledger field.
+4. End-to-end test: run proxy locally, point a real client at `http://127.0.0.1:8080`, verify `.harness/sessions/*.jsonl` chain integrity.

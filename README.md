@@ -6,9 +6,7 @@ This repository contains the practical, mechanical implementation of the "Immune
 
 ## Architecture
 
-The Harness Protocol has two components:
-
-### 1. The Proxy (`proxy-rust/`)
+### The Proxy (`proxy-rust/`)
 
 A standalone Rust binary — the actual harness. It sits **outside** any AI agent:
 
@@ -20,14 +18,6 @@ A standalone Rust binary — the actual harness. It sits **outside** any AI agen
 **Usage:** set your LLM client's `base_url` to `http://127.0.0.1:8080`. The proxy forwards to the real API.
 
 **Build:** pre-built binaries are produced by GitHub Actions (`.github/workflows/build-proxy.yml`) for Windows x86_64, Linux x86_64, and macOS aarch64.
-
-### 2. The VS Code Extension (`extension/`)
-
-A read-only sidebar viewer — the display layer only:
-
-- Reads `.harness/sessions/*.jsonl` and shows sessions, entries, and fields in the Explorer sidebar.
-- **Zero recording logic.** Zero network calls. No `chatParticipant`. No opinions.
-- Configure `harness.root` to point at the directory containing `.harness/`.
 
 ## Protocol
 

@@ -276,14 +276,6 @@ A Rust binary implementing the invisible MITM proxy deployment model (§1).
 - Conformance tier: **L2**.
 - Pre-built binaries (`harness-proxy.exe` / `harness-proxy`) are produced by CI at `.github/workflows/build-proxy.yml`.
 
-### 15.2 VS Code extension (`extension/`)
-
-A TypeScript VS Code extension implementing a read-only sidebar viewer.
-
-- Reads `<harness.root>/.harness/sessions/*.jsonl` and displays sessions, entries, and fields in the Explorer sidebar.
-- Zero recording logic. Zero network calls. Purely a display layer.
-- Configured via `harness.root` VS Code setting (absolute path to the directory that contains `.harness/`).
-
 ---
 
 ## 14. Normative references
