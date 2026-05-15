@@ -612,3 +612,53 @@ Prediction held (logic review). The avoidance pattern was real: the `HashMap` im
 1. `Fix buffered Anthropic multi-tool capture` — one-line change in `extract_anthropic`; closes the streaming/buffered consistency gap noted above; small and targeted.
 2. `End-to-end proxy verification` — run the proxy with the real binary against a live LLM client; directly tests the core claim; the May 8 binary works, or push to CI for the current build.
 3. `SPEC §12 conformance tests` — write the Rust unit tests for ledger.rs round-trip, tamper detection, crash recovery; integrity layer has no test coverage.
+
+---
+## [2026-05-15] Improve: fix buffered Anthropic multi-tool capture
+
+**Target:** `proxy-rust/src/main.rs` — `extract_anthropic`
+**Commit:** `cbdb37e`
+
+**[ASK]** Improve skill — continue.
+
+**[INTERPRETATION]** The prior iteration (streaming tool call reconstruction) surfaced a `[!REALIZATION]` mid-reflection: the buffered Anthropic extractor (`extract_anthropic`) still used last-wins assignment for `tool_use` blocks. The streaming path was fixed; the buffered path was not. The prior trail entry ranked this as the #1 candidate next move. This iteration closes that inconsistency.
+
+**[EXAMINATION]**
+
+*Purpose lens:* `extract_anthropic` iterated `content[]` blocks and matched `tool_use` with `act = Some(block.clone())`. In a response with two tool_use blocks (e.g. a model calling both `search` and `write_file` in one turn), the first block was silently discarded and the second was stored. The ledger would record one action when two occurred. This is a faithfulness failure — not just inconsistency.
+
+*Inconsistency lens:* `thinking` blocks were already collected into `think_blocks: Vec<Value>` (correct pattern). `tool_use` blocks were handled with the wrong pattern right below. The inconsistency was structural, not incidental — two adjacent arms with two different patterns for the same type of problem.
+
+*Challenge:* Is the fix correct? Single-block case must be `Some(Value::Object)` not `Some(Value::Array([...]))` — because the streaming path also returns a single object for one block, and downstream consumers (ai-steward) may type-check the schema. Using `match len { 1 => iter.next(), _ => Some(Array) }` preserves backwards compatibility for the common case while fixing the multi-block case.
+
+**[PRE-COMMIT PREDICTION]**
+- Response with 2 `tool_use` blocks: `act = Some(Value::Array([block1, block2]))`. Prior: `Some(block2)`.
+- Response with 1 `tool_use` block: `act = Some(block)`. Unchanged.
+- Response with 0 `tool_use` blocks: `act = None`. Unchanged.
+- `reason` and `think` paths: unchanged.
+- Streaming and buffered Anthropic paths now consistent.
+
+**[ACTION]**
+- `let mut act = None` → `let mut tool_use_blocks: Vec<Value> = Vec::new()`
+- `Some("tool_use") => { act = Some(block.clone()); }` → `Some("tool_use") => { tool_use_blocks.push(block.clone()); }`
+- Added `match tool_use_blocks.len() { 0 => None, 1 => iter.next(), _ => Some(Array) }` construction mirroring the streaming path pattern
+
+**[REFLECTION]**
+Prediction held. 7 lines changed. The fix pattern is now symmetric with `think_blocks` — both fields use `Vec<Value>` accumulation. The asymmetry was the tell: `thinking` had a Vec, `tool_use` had a scalar. That should have been caught when `think_blocks` was introduced, but wasn't.
+
+*Current model of the target:* The proxy's extraction layer is now complete for the Anthropic provider — both streaming and buffered paths collect all content block types faithfully. The remaining correctness gap is the integrity layer (ledger write, hash chain, concurrent access) which has never been tested.
+
+*Blind spot:* `extract_openai` returns `v["choices"][0]["message"]["tool_calls"]` verbatim. That works because the buffered OpenAI response delivers the full array in one JSON blob. But what if the model populates both `content` (text) and `tool_calls` in the same response? Looking at `extract_openai`: `reason` takes `message.content` and `act` takes `message.tool_calls` — they're independent fields, so no conflict. This is fine; noting it so a future reader doesn't wonder.
+
+*Imagined reader pushback:* "Why wasn't this caught when the streaming fix was done last iteration?" Because the streaming and buffered functions are separate, and the last iteration was scoped to the streaming accumulators. The `[!REALIZATION]` in the trail was the mechanism that carried the finding forward. This is the trail doing its job.
+
+*Trigger evaluation (across-trail):*
+- *Recurring finding-class:* EVALUATE — last two iterations both fixed tool_use capture gaps (streaming then buffered). Is this a pattern? Yes, but it is the same root gap being closed at two layers, not a recurring drift pattern. The class is resolved after this iteration.
+- *About to declare silence:* not fired.
+- *Contradicts prior `[!REALIZATION]`:* not fired.
+- *Operator explicitly asked:* not fired.
+
+**[CANDIDATE NEXT MOVES — ranked]**
+1. `End-to-end proxy verification` — run the proxy with a real LLM client; directly tests the core claim; has been deferred since 2026-05-08; the May 8 binary is available, or push to CI for the current codebase
+2. `SPEC §12 conformance tests` — write Rust unit tests for ledger.rs; integrity layer (hash chain, fail-closed, fsync) has no test coverage; the test structure (inline `#[cfg(test)]` modules) requires no new build infrastructure
+3. `extract_gemini buffered multi-function-call capture` — `extract_gemini` also uses `act = Some(fc.clone())` (last-wins) for `functionCall` parts; same pattern as the just-fixed Anthropic bug; third provider has same gap
