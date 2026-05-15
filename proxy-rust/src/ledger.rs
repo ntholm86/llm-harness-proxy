@@ -66,7 +66,12 @@ impl SessionLedger {
             .context("failed to open session file")?;
 
         // Scan existing entries to get seq + prev_hash.
-        let (seq, prev) = scan_tail(&mut file)?;
+        // If a torn line is found, truncate to clean_end before writing so the
+        // recovery entry is not concatenated onto the torn fragment.
+        let (seq, prev, torn_offset) = scan_tail(&mut file)?;
+        if let Some(offset) = torn_offset {
+            file.set_len(offset).context("truncate torn entry failed")?;
+        }
 
         let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
@@ -102,30 +107,48 @@ impl SessionLedger {
     }
 }
 
-fn scan_tail(file: &mut File) -> Result<(u64, String)> {
+/// Scan a session file from the start, collecting the last valid entry.
+/// Returns `(next_seq, prev_hash, torn_offset)` where `torn_offset` is
+/// `Some(n)` when a torn (unparseable) line was found after the last valid
+/// entry — `n` is the byte offset of that torn line so the caller can
+/// truncate the file there before the next write.
+fn scan_tail(file: &mut File) -> Result<(u64, String, Option<u64>)> {
     file.seek(SeekFrom::Start(0))?;
-    let reader = BufReader::new(&*file);
+    let mut reader = BufReader::new(&*file);
     let mut last_entry: Option<Value> = None;
     let mut last_seq: i64 = -1;
+    let mut clean_end: u64 = 0;
 
-    for line in reader.lines() {
-        let line = line?;
+    loop {
+        let mut line = String::new();
+        let n = reader.read_line(&mut line)?;
+        if n == 0 { break; } // EOF — clean end
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            clean_end += n as u64;
+            continue;
+        }
         match serde_json::from_str::<Value>(trimmed) {
             Ok(obj) => {
+                clean_end += n as u64;
                 if let Some(seq) = obj.get("seq").and_then(|v| v.as_i64()) {
                     last_seq = seq;
                 }
                 last_entry = Some(obj);
             }
-            Err(_) => break, // torn line — stop
+            Err(_) => {
+                // Torn line — return clean_end as the truncation point.
+                return match last_entry {
+                    None => Ok((0, GENESIS_PREV.to_string(), Some(clean_end))),
+                    Some(e) => Ok(((last_seq + 1) as u64, hash_entry(&e), Some(clean_end))),
+                };
+            }
         }
     }
 
     match last_entry {
-        None => Ok((0, GENESIS_PREV.to_string())),
-        Some(e) => Ok(((last_seq + 1) as u64, hash_entry(&e))),
+        None => Ok((0, GENESIS_PREV.to_string(), None)),
+        Some(e) => Ok(((last_seq + 1) as u64, hash_entry(&e), None)),
     }
 }
 
@@ -238,16 +261,7 @@ mod tests {
     }
 
     // --- §12.4 Torn-line scan recovery ----------------------------------------
-    //
-    // scan_tail correctly identifies the last clean entry's seq and hash when a
-    // torn (incomplete) line follows it. The computation is correct.
-    //
-    // KNOWN GAP: the recovery *write* is not clean. Because the file is opened in
-    // append mode, the recovery entry is written immediately after the torn bytes
-    // with no separator. On the next read that line parses as invalid JSON,
-    // making the recovery entry permanently unreadable. Fix: scan_tail must
-    // return the clean-end byte offset; append_entry must truncate to that offset
-    // before writing. Tracked for the next integrity iteration.
+
     #[test]
     fn scan_tail_stops_at_torn_line() {
         let root = tmp_root("torn");
@@ -282,10 +296,60 @@ mod tests {
             .append(true)
             .open(&path)
             .expect("open");
-        let (seq, prev) = scan_tail(&mut file).expect("scan_tail");
+        let (seq, prev, torn_offset) = scan_tail(&mut file).expect("scan_tail");
 
         assert_eq!(seq, 1, "seq continues from last clean entry (0 → 1)");
         assert_eq!(prev, hash_entry(&entry0),
             "prev is the hash of the last clean entry");
+        assert!(torn_offset.is_some(),
+            "torn_offset must be Some when a torn line is present");
+    }
+
+    // --- §12.5 Torn-line full recovery (write path) ---------------------------
+    //
+    // append_entry must truncate torn bytes before writing the recovery entry
+    // so the file contains exactly N clean, chain-linked entries afterwards.
+    #[test]
+    fn torn_line_full_recovery() {
+        let root = tmp_root("recovery");
+        // Write entry 0 through the normal path.
+        SessionLedger::append_entry(
+            &root, "s5", "m", "sha256:00",
+            false, None, false, None, "entry 0",
+        ).expect("append entry 0");
+
+        // Simulate a crash mid-write of entry 1 — append a torn fragment.
+        let path = root.join("sessions").join("s5.jsonl");
+        {
+            let mut f = OpenOptions::new().append(true).open(&path)
+                .expect("open for tear");
+            write!(f, r#"{{"v":1,"seq":1,"sid":"s5","reason":"torn"#)
+                .expect("write torn fragment");
+        }
+
+        // Recovery write — append_entry must truncate the torn bytes first.
+        SessionLedger::append_entry(
+            &root, "s5", "m", "sha256:00",
+            false, None, false, None, "entry 1 recovered",
+        ).expect("recovery append");
+
+        // File must now contain exactly 2 valid, chain-linked entries.
+        let content = std::fs::read_to_string(&path).expect("read");
+        let entries: Vec<Value> = content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l)
+                .expect("parse — recovery must produce clean lines"))
+            .collect();
+
+        assert_eq!(entries.len(), 2,
+            "file must contain exactly 2 readable entries after recovery");
+        assert_eq!(entries[0]["seq"], 0);
+        assert_eq!(entries[1]["seq"], 1);
+        let h0 = hash_entry(&entries[0]);
+        assert_eq!(entries[1]["prev"].as_str().unwrap(), h0,
+            "chain intact after recovery");
+        assert_eq!(entries[1]["reason"].as_str().unwrap(), "entry 1 recovered",
+            "recovery entry content preserved");
     }
 }
