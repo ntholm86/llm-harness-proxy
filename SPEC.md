@@ -282,6 +282,12 @@ A Rust binary implementing the invisible MITM proxy deployment model (§1).
 
 **Listens on** `127.0.0.1:8474` by default (override: `HARNESS_LISTEN`).
 
+**Session root resolution** (when `HARNESS_ROOT` is not set):
+1. Walk up from cwd; if a `.git` directory is found, use `<repo-root>/.harness`.
+2. Otherwise use `~/.harness` (POSIX `HOME`, Windows `USERPROFILE`).
+
+When ai-steward manages a session it sets `HARNESS_ROOT` explicitly to the target repository root. The proxy is the sole writer; ai-steward has read-only access.
+
 **Routes:**
 
 | Route | Provider |
@@ -295,6 +301,7 @@ A Rust binary implementing the invisible MITM proxy deployment model (§1).
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `HARNESS_ROOT` | `.harness/` | Ledger root directory |
+| `HARNESS_ROOT` | *(resolved)* | Session root directory (see resolution order above) |
 | `HARNESS_LISTEN` | `127.0.0.1:8474` | Proxy listen address |
 | `UPSTREAM_BASE_URL` | `https://api.openai.com` | OpenAI-compatible upstream base |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Anthropic upstream base |

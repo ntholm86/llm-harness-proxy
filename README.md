@@ -17,11 +17,20 @@ The ledger format is specified in [SPEC.md](./SPEC.md).
 **2. Run the proxy:**
 
 ```sh
-# Sessions land in .harness/sessions/ relative to cwd by default
-HARNESS_ROOT=/path/to/harness ./harness-proxy
+./harness-proxy
 ```
 
 The proxy listens on `127.0.0.1:8474` by default (`HARNESS_LISTEN` to override).
+
+`HARNESS_ROOT` (the session write location) is resolved in this order:
+
+| Priority | Condition | Session location |
+|---|---|---|
+| 1 | `HARNESS_ROOT` env var is set | `$HARNESS_ROOT/sessions/` |
+| 2 | cwd is inside a git repo | `<repo-root>/.harness/sessions/` |
+| 3 | no git repo found | `~/.harness/sessions/` |
+
+When **ai-steward** manages a project it sets `HARNESS_ROOT` to the target repository root — sessions land inside that repo and can be committed alongside the code. When running standalone (as above), the proxy detects the nearest git repo automatically.
 
 **3. Point your LLM client at the proxy:**
 
@@ -70,7 +79,7 @@ The proxy is a dumb pipe: all request headers (including `Authorization` / `x-ap
 
 | Variable | Default | Description |
 |---|---|---|
-| `HARNESS_ROOT` | `.harness` | Directory for session files. Created if absent. |
+| `HARNESS_ROOT` | *(see below)* | Session root. If unset: git repo root → `~/.harness`. Created if absent. |
 | `HARNESS_LISTEN` | `127.0.0.1:8474` | Address to bind. |
 | `UPSTREAM_BASE_URL` | `https://api.openai.com` | Upstream for `/v1/chat/completions`. |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Upstream for `/v1/messages`. |

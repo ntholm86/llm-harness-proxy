@@ -22,6 +22,21 @@ use tracing::{error, info};
 const SESSION_HEADER: &str = "x-harness-session";
 const UPSTREAM_HEADER: &str = "x-harness-upstream";
 
+/// Walk up from cwd until a `.git` directory is found. Returns the directory
+/// containing `.git`, i.e. the repository root. Returns `None` if no git repo
+/// is found before reaching the filesystem root.
+fn find_git_root() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        if dir.join(".git").exists() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
     harness_root: PathBuf,
@@ -39,9 +54,19 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let harness_root = PathBuf::from(
-        std::env::var("HARNESS_ROOT").unwrap_or_else(|_| ".harness".to_string()),
-    );
+    let harness_root = PathBuf::from(std::env::var("HARNESS_ROOT").unwrap_or_else(|_| {
+        // Resolution order:
+        // 1. HARNESS_ROOT env var (handled above — ai-steward sets this)
+        // 2. Git repo root of cwd → <repo>/.harness  (project sessions, committable)
+        // 3. ~/.harness                               (global fallback, no repo)
+        if let Some(repo_root) = find_git_root() {
+            return repo_root.join(".harness").to_string_lossy().into_owned();
+        }
+        let home = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_else(|_| ".".to_string());
+        format!("{}/.harness", home)
+    }));
     let upstream_base = std::env::var("UPSTREAM_BASE_URL")
         .unwrap_or_else(|_| "https://api.openai.com".to_string())
         .trim_end_matches('/')
@@ -78,6 +103,7 @@ async fn main() -> Result<()> {
         .with_state(state);
 
     info!("harness-proxy listening on {}", listen);
+    info!("harness-root: {}", state.harness_root.display());
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     axum::serve(listener, app).await?;
     Ok(())
