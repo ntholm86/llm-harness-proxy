@@ -705,3 +705,271 @@ fn accumulate_sse_gemini(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
     };
     (reason, think, act)
 }
+
+#[cfg(test)]
+mod extraction_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Build a minimal SSE byte buffer from a slice of JSON event values.
+    fn sse(events: &[Value]) -> Vec<u8> {
+        events
+            .iter()
+            .map(|e| format!("data: {}\n", serde_json::to_string(e).unwrap()))
+            .collect::<String>()
+            .into_bytes()
+    }
+
+    // ── extract_openai ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn extract_openai_text_only() {
+        let body = json!({"choices": [{"message": {"content": "Hello"}}]});
+        let (reason, think, act) = extract_openai(body.to_string().as_bytes());
+        assert_eq!(reason, "Hello");
+        assert!(think.is_none());
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn extract_openai_grok_reasoning() {
+        let body = json!({
+            "choices": [{"message": {"content": "Answer", "reasoning_content": "I thought about it"}}]
+        });
+        let (reason, think, act) = extract_openai(body.to_string().as_bytes());
+        assert_eq!(reason, "Answer");
+        let arr = think.unwrap();
+        let arr = arr.as_array().expect("think must be array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0].as_str().unwrap(), "I thought about it");
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn extract_openai_tool_calls() {
+        let body = json!({"choices": [{"message": {
+            "content": "",
+            "tool_calls": [{"id": "call_1", "type": "function",
+                            "function": {"name": "search", "arguments": "{\"q\":\"test\"}"}}]
+        }}]});
+        let (reason, think, act) = extract_openai(body.to_string().as_bytes());
+        assert_eq!(reason, "");
+        assert!(think.is_none());
+        assert!(act.unwrap().as_array().is_some());
+    }
+
+    #[test]
+    fn extract_openai_invalid_json() {
+        let (reason, think, act) = extract_openai(b"not json");
+        assert_eq!(reason, "");
+        assert!(think.is_none());
+        assert!(act.is_none());
+    }
+
+    // ── extract_anthropic ──────────────────────────────────────────────────────
+
+    #[test]
+    fn extract_anthropic_text_only() {
+        let body = json!({"content": [{"type": "text", "text": "Hello"}]});
+        let (reason, think, act) = extract_anthropic(body.to_string().as_bytes());
+        assert_eq!(reason, "Hello");
+        assert!(think.is_none());
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn extract_anthropic_thinking_block() {
+        let body = json!({"content": [
+            {"type": "thinking", "thinking": "Let me think...", "signature": "sig123"},
+            {"type": "text", "text": "Result"}
+        ]});
+        let (reason, think, act) = extract_anthropic(body.to_string().as_bytes());
+        assert_eq!(reason, "Result");
+        let arr = think.unwrap();
+        let arr = arr.as_array().expect("think must be array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"],      "thinking");
+        assert_eq!(arr[0]["thinking"],  "Let me think...");
+        assert_eq!(arr[0]["signature"], "sig123");
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn extract_anthropic_single_tool_use() {
+        let body = json!({"content": [
+            {"type": "tool_use", "id": "toolu_1", "name": "search", "input": {"q": "test"}}
+        ]});
+        let (reason, think, act) = extract_anthropic(body.to_string().as_bytes());
+        assert_eq!(reason, "");
+        assert!(think.is_none());
+        // single tool_use returned unwrapped — not in an array
+        let act = act.unwrap();
+        assert_eq!(act["type"], "tool_use");
+        assert_eq!(act["name"], "search");
+    }
+
+    #[test]
+    fn extract_anthropic_multiple_tool_use() {
+        let body = json!({"content": [
+            {"type": "tool_use", "id": "toolu_1", "name": "search", "input": {}},
+            {"type": "tool_use", "id": "toolu_2", "name": "fetch",  "input": {}}
+        ]});
+        let (_reason, think, act) = extract_anthropic(body.to_string().as_bytes());
+        assert!(think.is_none());
+        assert_eq!(act.unwrap().as_array().unwrap().len(), 2);
+    }
+
+    // ── extract_gemini ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn extract_gemini_text_only() {
+        let body = json!({"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]});
+        let (reason, think, act) = extract_gemini(body.to_string().as_bytes());
+        assert_eq!(reason, "Hello");
+        assert!(think.is_none());
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn extract_gemini_thought_part() {
+        let body = json!({"candidates": [{"content": {"parts": [
+            {"thought": true, "text": "Thinking..."},
+            {"text": "Answer"}
+        ]}}]});
+        let (reason, think, act) = extract_gemini(body.to_string().as_bytes());
+        assert_eq!(reason, "Answer");
+        let arr = think.unwrap();
+        let arr = arr.as_array().expect("think must be array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["thought"], true);
+        assert_eq!(arr[0]["text"],    "Thinking...");
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn extract_gemini_single_function_call() {
+        let body = json!({"candidates": [{"content": {"parts": [
+            {"functionCall": {"name": "search", "args": {"q": "test"}}}
+        ]}}]});
+        let (reason, think, act) = extract_gemini(body.to_string().as_bytes());
+        assert_eq!(reason, "");
+        assert!(think.is_none());
+        // single functionCall returned unwrapped
+        assert_eq!(act.unwrap()["name"], "search");
+    }
+
+    // ── accumulate_sse_openai ──────────────────────────────────────────────────
+
+    #[test]
+    fn sse_openai_text_stream() {
+        let buf = sse(&[
+            json!({"choices": [{"delta": {"content": "Hello"}}]}),
+            json!({"choices": [{"delta": {"content": " world"}}]}),
+        ]);
+        let (reason, think, act) = accumulate_sse_openai(&buf);
+        assert_eq!(reason, "Hello world");
+        assert!(think.is_none());
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn sse_openai_grok_reasoning() {
+        let buf = sse(&[
+            json!({"choices": [{"delta": {"reasoning_content": "Step 1"}}]}),
+            json!({"choices": [{"delta": {"reasoning_content": " Step 2"}}]}),
+            json!({"choices": [{"delta": {"content": "Answer"}}]}),
+        ]);
+        let (reason, think, act) = accumulate_sse_openai(&buf);
+        assert_eq!(reason, "Answer");
+        let arr = think.unwrap();
+        let arr = arr.as_array().expect("think must be array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0].as_str().unwrap(), "Step 1 Step 2");
+        assert!(act.is_none());
+    }
+
+    // ── accumulate_sse_anthropic ───────────────────────────────────────────────
+
+    #[test]
+    fn sse_anthropic_text_stream() {
+        let buf = sse(&[
+            json!({"type": "content_block_delta", "index": 0,
+                   "delta": {"type": "text_delta", "text": "Hello"}}),
+            json!({"type": "content_block_delta", "index": 0,
+                   "delta": {"type": "text_delta", "text": " world"}}),
+        ]);
+        let (reason, think, act) = accumulate_sse_anthropic(&buf);
+        assert_eq!(reason, "Hello world");
+        assert!(think.is_none());
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn sse_anthropic_thinking_delta() {
+        let buf = sse(&[
+            json!({"type": "content_block_delta", "index": 0,
+                   "delta": {"type": "thinking_delta", "thinking": "Let me"}}),
+            json!({"type": "content_block_delta", "index": 0,
+                   "delta": {"type": "thinking_delta", "thinking": " think"}}),
+            json!({"type": "content_block_delta", "index": 1,
+                   "delta": {"type": "text_delta", "text": "Answer"}}),
+        ]);
+        let (reason, think, act) = accumulate_sse_anthropic(&buf);
+        assert_eq!(reason, "Answer");
+        let arr = think.unwrap();
+        let arr = arr.as_array().expect("think must be array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"],     "thinking");
+        assert_eq!(arr[0]["thinking"], "Let me think");
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn sse_anthropic_tool_use() {
+        let buf = sse(&[
+            json!({"type": "content_block_start", "index": 0,
+                   "content_block": {"type": "tool_use", "id": "toolu_1", "name": "search"}}),
+            json!({"type": "content_block_delta", "index": 0,
+                   "delta": {"type": "input_json_delta", "partial_json": "{\"n\":"}}),
+            json!({"type": "content_block_delta", "index": 0,
+                   "delta": {"type": "input_json_delta", "partial_json": "42}"}}),
+        ]);
+        let (reason, think, act) = accumulate_sse_anthropic(&buf);
+        assert_eq!(reason, "");
+        assert!(think.is_none());
+        let act = act.unwrap();
+        assert_eq!(act["type"], "tool_use");
+        assert_eq!(act["name"], "search");
+        assert_eq!(act["input"]["n"].as_u64().unwrap(), 42);
+    }
+
+    // ── accumulate_sse_gemini ──────────────────────────────────────────────────
+
+    #[test]
+    fn sse_gemini_text_stream() {
+        let buf = sse(&[
+            json!({"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}),
+            json!({"candidates": [{"content": {"parts": [{"text": " world"}]}}]}),
+        ]);
+        let (reason, think, act) = accumulate_sse_gemini(&buf);
+        assert_eq!(reason, "Hello world");
+        assert!(think.is_none());
+        assert!(act.is_none());
+    }
+
+    #[test]
+    fn sse_gemini_thought_stream() {
+        let buf = sse(&[
+            json!({"candidates": [{"content": {"parts": [{"thought": true, "text": "Thinking..."}]}}]}),
+            json!({"candidates": [{"content": {"parts": [{"text": "Answer"}]}}]}),
+        ]);
+        let (reason, think, act) = accumulate_sse_gemini(&buf);
+        assert_eq!(reason, "Answer");
+        let arr = think.unwrap();
+        let arr = arr.as_array().expect("think must be array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["thought"], true);
+        assert_eq!(arr[0]["text"],    "Thinking...");
+        assert!(act.is_none());
+    }
+}
