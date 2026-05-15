@@ -46,7 +46,7 @@ Vision names `vscode.lm.registerLanguageModelChatProvider` as the destination. T
 ## Active operational rules
 
 - **Self-hosting gate is CLOSED.** Do not invoke it as a deferral. The gate served its purpose. The new question is: what does production use reveal?
-- **Download the new binary before the next dev session.** The old binary (port 8080, no git-root resolution) should be replaced by the CI-built artifact from run 25917890677.
+- ~~**Download the new binary before the next dev session.**~~ **DONE 2026-05-15.** Old binary at `C:\git\harness-proxy.exe` deleted. New binary (port 8474, git-root resolution) running at `C:\git\harness-protocol\harness-proxy.exe`. Retrospect claim 4 falsified.
 - **`think` field requires runtime verification before claiming capture is complete.** The extended thinking path has no end-to-end evidence.
 - **Spec updates belong with every feature commit.** Carried forward — the SPEC.md catch-up iteration remains a cautionary example.
 - **Name avoidance when it happens.** The ambient recording path in vision has never appeared as a candidate next move. This is either deliberate scope narrowing (acceptable) or avoidance (not acceptable). Name which.

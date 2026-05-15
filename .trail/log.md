@@ -1,5 +1,26 @@
 ﻿
 ---
+## [2026-05-15] New binary deployed — git-root HARNESS_ROOT resolution verified
+
+**Target:** `C:\git\harness-protocol\harness-proxy.exe` — local deployment of commit `d3db558`+
+
+**What happened:**
+Old binary at `C:\git\harness-proxy.exe` (commit `4de4c33`, port 8080) was deleted. New binary placed at `C:\git\harness-protocol\harness-proxy.exe`. Started with no `HARNESS_ROOT` env var set, from working directory `C:\git\harness-protocol` (via `Push-Location`).
+
+**Startup output:**
+```
+harness-proxy listening on 127.0.0.1:8474
+harness-root: C:\git\harness-protocol\.harness
+```
+
+**[!REALIZATION] The old binary at C:\git\harness-proxy.exe was the root cause of every failed test this session.**
+Every attempt to run `.\.harness-proxy.exe` from `C:\git` was resolving to the OLD binary (port 8080), not the new one. The terminal tool was also stripping `cd`/`Set-Location` prefixes, compounding the confusion. Once the old binary was deleted and the new one was called by absolute path, the issue resolved immediately.
+
+**Retrospect claim 4 falsified:** "The new binary has never been run locally." — it has now been run locally, port 8474, git-root auto-resolution working, `HARNESS_ROOT` env var confirmed unset during startup.
+
+**Proxy is now running:** terminal `059fa75e`, port 8474, harness-root `C:\git\harness-protocol\.harness`.
+
+---
 ## [2026-05-15] Improve loop — §12.7 cross-process alternating writes test
 
 **Target:** `proxy-rust/src/ledger.rs` — test coverage
