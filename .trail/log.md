@@ -811,3 +811,51 @@ The 5 iterations formed two consecutive sweeps:
 1. End-to-end proxy verification — push unpushed commits (`master` at `828e4d2`, `origin/master` at `10906a6`), wait for CI build, download artifact, run against real API key; this is the iteration that demonstrates what vision promises
 2. Concurrent-write test — the one remaining SPEC §12 single-process unit test gap; small, additive
 3. Self-hosting enactment — after end-to-end: point proxy at a real development session on this project
+
+---
+## [2026-05-15] JCS canonicalization unit tests
+
+**Commit:** b0d9029
+**File changed:** proxy-rust/src/jcs.rs (+73 lines — 8 tests in new `#[cfg(test)] mod tests`)
+
+**Interpretation:** "Continue" with the improve skill. Retrospect retrospect.md is the primary orientation document. Active operational rule: "End-to-end gate (primary) — no further feature additions before end-to-end verification." Examined the target to find the highest-leverage remaining coding-mode action.
+
+**Examination:**
+
+*Purpose lens:* `jcs.rs` is RFC 8785 canonicalization — the foundation of the hash chain. Every SPEC §12 claim about chain integrity and tamper detection depends on this function producing correct canonical bytes. The 5 existing ledger tests (commits `c36798b`, `b2293d5`) use JCS implicitly but test none of its surface. A wrong byte in `jcs::canonicalize` would corrupt every hash in every chain silently.
+
+*Inconsistency lens:* `ledger.rs` has 5 unit tests. `jcs.rs` has zero. The foundation of the tested system has no tests of its own.
+
+**[!REALIZATION]** While examining the untracked files (`git status --short`), found 15 `.harness/sessions/*.jsonl` files from 2026-05-07 and 2026-05-08. **Retrospect Claim 3 ("The proxy has never been invoked against a real LLM API") is already falsified.** The sessions contain real entries with models `gpt-4o-mini` and `claude-sonnet-4.6`. HOWEVER: those sessions were captured by an older proxy version — they lack the `think` and `transparency` fields added in this sprint, and `act` is consistently null. The CURRENT code (with extraction fixes and transparency fields) has never been tested end-to-end. The "end-to-end gate" remains valid but the claim needs to be reframed: not "never run" but "not run with current SPEC-compliant schema."
+
+**Decision:** Add `#[cfg(test)]` unit tests to `jcs.rs`. Ranks above end-to-end gate because end-to-end requires `git push` to origin (needs user confirmation, deployment step). JCS tests close a real gap — untested module, foundational to all chain claims — in ~70 lines.
+
+**Pre-commit prediction:** All 8 tests pass on CI. The existing sessions and ledger chain tests prove the JCS logic is sound — the tests pin byte sequences, not change behavior. Nothing in extraction or integrity path changes.
+
+**8 tests added:**
+- `sorts_object_keys_alphabetically` — `{"z":2,"a":1,"m":0}` → `{"a":1,"m":0,"z":2}`
+- `key_ordering_is_insertion_order_independent` — both orderings of same object produce identical bytes
+- `sorts_nested_object_keys` — inner objects also sorted
+- `array_preserves_insertion_order` — `[3,1,2]` stays `[3,1,2]`
+- `scalars_null_bool_number_string` — null/true/false/42/"hello"
+- `escapes_mandatory_control_characters` — `\n\r\t\b\f\\\"` all round-trip correctly
+- `escapes_other_c0_control_characters_as_unicode` — U+0001 → `\u0001`, U+001F → `\u001f`
+
+**Reflection:**
+
+*Current model of target:* The proxy's unit-test layer is now structurally complete for single-process correctness: ledger integrity (5 tests), JCS canonicalization (8 tests). The only unverified layer is runtime behavior under a real LLM client — and the existing sessions prove the pre-fix proxy did run; what's unverified is whether the current SPEC-compliant schema is captured correctly end-to-end.
+
+*Blind spot:* The U+10000+ non-BMP key sorting case is acknowledged in the comment but has no test. For the actual ledger schema (all ASCII keys), this is benign. If the proxy were ever used with non-BMP object keys, the sort would be wrong. No test was added for this because it can't arise in the current use case.
+
+*Adversarial reader:* "You said JCS tests close the last untested module — but where are the `ulid.rs` tests?" Fair: `ulid.rs` also has no tests. Examined it superficially and deprioritized it because ULIDs are checked indirectly by the ledger tests (every entry gets a ULID as the session ID). But this is a real gap.
+
+**Macro reflection triggers:**
+- *Recurring finding-class:* not fired — JCS tests are a new class (not a repeat of prior class)
+- *About to declare silence:* not fired — made a change
+- *Contradicts prior [!REALIZATION]:* not fired — [!REALIZATION] above is new; does not contradict prior ones
+- *Operator explicitly asked:* not fired
+
+**Candidate Next Moves:**
+1. **End-to-end gate** — push unpushed commits (local master at `b0d9029`, origin/master at `228742c`) to origin, wait for CI build, download artifact, run against real API key. The existing pre-fix sessions falsify Claim 3 technically, but the current SPEC-compliant schema has never been exercised end-to-end. This is the primary operational rule.
+2. **`ulid.rs` tests** — the one remaining untested module; a ULID uniqueness test and format-regex test would close the last gap in the unit-test layer. Small, additive, symmetric with the JCS work just done.
+3. **Commit the untracked `.harness/sessions/` files** — 15 session files exist untracked from the prior arc. They are historical evidence of proxy operation. Committing them (or explicitly `.gitignore`-ing them) makes the evidence visible and removes noise from `git status`.
