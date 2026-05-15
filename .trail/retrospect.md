@@ -115,3 +115,31 @@ The 2026-05-07 retrospect found: high build effectiveness, low record effectiven
 The new risk is the opposite failure mode: **the loop is iterating on visible, enumerable features while the core guarantee (fail-closed writes, chain integrity under adversarial conditions) remains invisible and unverified.** Feature velocity is real. The credibility gap has moved from "unrecorded" to "untested." The proxy is well-built and honestly documented. It may also be broken in ways no one has looked for, because no test has been run.
 
 The most important sentence in vision: "The agent is structurally incapable of receiving a response until the ledger has accepted it." That sentence has not been tested. Running the proxy is the single action that would begin to test it.
+
+
+---
+## Retrospect update: 2026-05-15 (run: end-to-end gate + CI repair sprint)
+
+_Appended; prior content preserved above._
+
+### Claim updates
+
+**Claim 3 revised — proxy has now been invoked against a real LLM API (partially).**
+Status: Partially falsified. The proxy binary (built by CI run #11, commit 4de4c33, all 15 tests green) was run on Windows and a real Anthropic API call was made through it. The network path is verified. Anthropic responded with a credit-exhaustion error — not a proxy failure. The ledger wrote a session file with the full current SPEC schema (`think`, `transparency`, `v`, `seq`, `sid`, `model`, `in`, `prev`, `ts`, `act`, `reason`). The fail-closed guarantee is demonstrated: a session file exists despite the upstream error. What remains unverified: `act` capturing real model content (requires a funded key). A future run can close this gap with one funded API call.
+
+**Claim 4 revised — self-hosting pledge remains open.**
+The proxy is built, CI is green, network path is verified. The founding pledge requires routing a DEVELOPMENT INTERACTION on this project through the proxy. That has not happened. This is the last open commitment. Its remaining blocker is operational (set up VS Code extension or curl routing), not technical.
+
+**New claim 9 — The gitignore was silently inert for the entire sprint.**
+`.gitignore` was UTF-16 LE encoded (Windows default when creating via VS Code "New File"). Git expects UTF-8; it silently discards rules it cannot parse. Every rule in the file (including `.harness/` and `/proxy-rust/target/`) was inert. Session files from the May 7-8 sprints were untracked the entire time. The fix (re-save as UTF-8 without BOM) was committed 4cc8fd0. This is a class of silent failure distinct from anything seen before: a configuration file that APPEARS correct but is completely inert due to encoding.
+
+**New claim 10 — The Windows FILE_APPEND_DATA / FILE_WRITE_DATA split is a platform-specific trap for the torn-line recovery path.**
+`set_len()` on a handle opened with `.append(true)` fails with `Access is denied` on Windows because `FILE_APPEND_DATA` does not grant `SetEndOfFile`. The same call succeeds on Linux because `O_APPEND` + `ftruncate` operate on the same fd. This bug was silent for the entire sprint because: (a) the torn-line path only fires on crash-recovery, (b) no test existed, (c) CI ran only `cargo build`, not `cargo test`. Three independent failures had to co-occur for this bug to survive. The fix (second `write(true)` handle for truncation) was committed 4de4c33.
+
+### Updated operational rules
+
+- **Self-hosting gate (primary).** End-to-end structural verification is complete. The one remaining open commitment is self-hosting: route a real development interaction on this project through the proxy and verify the session file. Until this is done, the founding pledge is unmet.
+- **`act` content verification.** Fund the Anthropic key and make one successful API call through the proxy. This closes the last structural verification gap.
+- **Single-writer integrity is complete. Do not revisit without a new finding.** (Carried forward — still valid.)
+- **Spec updates belong with every feature commit.** (Carried forward.)
+- **Encoding awareness.** On Windows, text files created by VS Code default to UTF-16 LE with BOM when the user selects "New File" with certain system locales. Any configuration file parsed by a Unix-origin tool (git, cargo, etc.) must be verified as UTF-8. This applies to: `.gitignore`, `.cargo/config.toml`, any future `.env` file.
