@@ -356,8 +356,9 @@ fn extract_openai(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
     // Grok-style reasoning_content. OpenAI o-series exposes only a token count in
     // usage.completion_tokens_details.reasoning_tokens — content is not returned by
     // the API. Ceiling: think will be null for standard GPT and OpenAI o-series.
-    let think = v["choices"][0]["message"]["reasoning_content"].clone();
-    let think = if think.is_null() { None } else { Some(think) };
+    // Wrapped in a single-element array for consistent array|null shape across all providers.
+    let raw_think = v["choices"][0]["message"]["reasoning_content"].clone();
+    let think = if raw_think.is_null() { None } else { Some(Value::Array(vec![raw_think])) };
     (reason, think, act)
 }
 
@@ -427,7 +428,8 @@ fn accumulate_sse_openai(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
         }
     }
 
-    let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
+    // Wrapped in a single-element array for consistent array|null shape across all providers.
+    let think = if thinking.is_empty() { None } else { Some(Value::Array(vec![Value::String(thinking)])) };
     let act = if tool_calls.is_empty() {
         None
     } else {
@@ -496,7 +498,10 @@ fn accumulate_sse_anthropic(buf: &[u8]) -> (String, Option<Value>, Option<Value>
         }
     }
 
-    let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
+    // Stored as a minimal block array matching non-streaming shape; signature unavailable in SSE.
+    let think = if thinking.is_empty() { None } else {
+        Some(Value::Array(vec![serde_json::json!({"type": "thinking", "thinking": thinking})]))
+    };
     let act = if tool_blocks.is_empty() {
         None
     } else {
@@ -689,7 +694,10 @@ fn accumulate_sse_gemini(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
         }
     }
 
-    let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
+    // Stored as a single thought-part array matching non-streaming shape; accumulated across all chunks.
+    let think = if thinking.is_empty() { None } else {
+        Some(Value::Array(vec![serde_json::json!({"thought": true, "text": thinking})]))
+    };
     let act = match fn_call_blocks.len() {
         0 => None,
         1 => fn_call_blocks.into_iter().next(),

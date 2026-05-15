@@ -1,5 +1,70 @@
 ﻿
 ---
+## [2026-05-15] Improve — think field shape normalization; claim 6 formally closed
+
+**Target:** `proxy-rust/src/main.rs` — all six `think` capture paths; `SPEC.md` §4.3
+
+**Intent (Commander's Intent applied):**
+"Please continue, use the improve skill, trail everything, understand my intent."
+Interpretation: the harness improve loop continues post-verification. All retrospect claims 1–5 are resolved. The remaining open item is claim 6 (ambient recording gap). Examining the proxy itself, not just the retrospect, is now the work. The intent is: make the proxy better for its first real downstream consumers.
+
+**Orientation (pre-examination):**
+- Vision: "Scope is now: Rust proxy only. Extension deleted permanently." (2026-05-15 direction change)
+- Retrospect claim 6: "ambient recording destination never appeared as a candidate next move"
+- All other claims resolved this session
+
+**Examine — Inconsistency lens:**
+
+The `think` field type is documented as `array | null` in SPEC §4.3 for all providers and paths. The actual code:
+
+| Path | Was storing | SPEC said |
+|------|-------------|-----------|
+| `extract_openai` (non-streaming Grok) | Raw `reasoning_content` JSON string | `array\|null` ✗ |
+| `accumulate_sse_openai` (streaming Grok) | `Value::String(accumulated)` | `array\|null` ✗ |
+| `accumulate_sse_anthropic` (streaming) | `Value::String(accumulated)` | `array\|null` ✗ |
+| `accumulate_sse_gemini` (streaming) | `Value::String(accumulated)` | `array\|null` ✗ |
+| `extract_anthropic` (non-streaming) | `Value::Array([{type,thinking,signature}])` | `array\|null` ✓ |
+| `extract_gemini` (non-streaming) | `Value::Array([{thought,text}])` | `array\|null` ✓ |
+
+Four of six paths stored bare strings. A downstream consumer of `.harness/sessions/*.jsonl` would need `typeof think === 'string' || Array.isArray(think)` branching depending on provider AND streaming mode. That is not a consumption contract — it is an accident.
+
+**Challenge the first read:**
+Could this be intentional? No. The SPEC description already says "captured verbatim" for all providers. The Anthropic non-streaming shape (`{type, thinking, signature}`) is the reference shape. Streaming loses the `signature` (unavailable in SSE), but the block structure can still be preserved. The inconsistency was not designed — it was an oversight in the streaming implementations.
+
+**Decision and prediction:**
+Normalize all four streaming paths and the Grok non-streaming path to store arrays. Prediction:
+- `extract_openai`: `[raw_reasoning_content_value]` — single-element array
+- `accumulate_sse_openai`: `["accumulated_string"]` — single-element array  
+- `accumulate_sse_anthropic`: `[{type:"thinking", thinking:"accumulated_text"}]` — minimal block (no `signature`, unavailable in streaming)
+- `accumulate_sse_gemini`: `[{thought:true, text:"accumulated_text"}]` — single thought-part block
+I predict: no existing tests break (16 tests cover `ledger.rs`/`jcs.rs`, not extraction functions). SPEC type column `array | null` becomes accurate for all paths.
+
+**Act:**
+Changed `proxy-rust/src/main.rs` — four normalizations in one pass. Changed `SPEC.md` §4.3 — updated `think` description to document streaming shape differences per provider. No tests added (the extraction functions have no unit tests — this is a blind spot carried forward).
+
+**Reflect:**
+- *Model:* The proxy's extraction layer is now type-consistent across all providers and modes. The one remaining asymmetry is structural (streaming loses Anthropic's `signature`) — it is documented, not hidden.
+- *Blind spot:* The extraction functions (`extract_openai`, `extract_anthropic`, `extract_gemini`, `accumulate_sse_*`) have zero unit tests. Every fix in this layer (including today's) relies on code review and end-to-end testing only. The streaming shape normalization is correct by inspection; it has not been exercised against a real streaming response. A future run should add unit tests for the extraction layer using fixture payloads.
+- *Expert pushback:* "You've made the shape consistent, but you've also made it harder to detect streaming vs non-streaming from the ledger alone — the Anthropic non-streaming entry has `signature`, the streaming entry doesn't. That's a meaningful difference." Response: correct, and now documented in SPEC §4.3. The difference is preserved, not hidden.
+
+**Macro reflection triggers:**
+- *Recurring finding-class:* not fired — this run addressed a new finding class (type inconsistency in extraction layer), not a repeat of prior classes.
+- *About to declare silence:* not fired.
+- *Contradicts prior `[!REALIZATION]`:* not fired — no prior realization about extraction layer type consistency.
+- *Operator explicitly asked:* not fired.
+
+**Claim 6 — formally closed:**
+Retrospect claim 6: "The ambient recording destination in vision has never appeared as a candidate next move in the arc." Per the improve skill: vision wins over retrospect when they disagree. Vision's 2026-05-15 update explicitly states: "The VS Code extension is deleted. Permanently. Not rebuilt. Scope is now: Rust proxy only." The `vscode.lm.registerLanguageModelChatProvider` path was the extension path. That path is now formally closed by the operator. The proxy IS the ambient recording mechanism — one env var (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`) routes all CLI LLM client traffic through it. The "zero-touch" aspiration of the original vision is approximately met for CLI clients. Claim 6 is resolved: the silence was deliberate scope narrowing, not avoidance.
+
+**[!REALIZATION] The extraction layer has no unit tests. Every correctness claim about what gets stored in the ledger rests on code review and end-to-end tests only. This is the single largest remaining verification gap in the proxy.**
+
+### Candidate next moves
+
+1. **Add unit tests for all extraction functions** — `extract_openai`, `extract_anthropic`, `extract_gemini`, and the three streaming accumulators. Fixture payloads for each provider, asserting `think`/`reason`/`act` shape. The normalization made today has no test coverage. Highest urgency.
+2. **End-to-end verify streaming think capture** — make a streaming Anthropic call with `thinking: {type: "enabled"}` and confirm the ledger entry has `think: [{type: "thinking", thinking: "..."}]` (the new normalized shape, without `signature`). Quick verification that the normalization is live and correct.
+3. **Grok `reason` field end-to-end** — the Grok/OpenAI provider has never been exercised at runtime. Both `reason` and `think` are unverified for this provider family.
+
+---
 ## [2026-05-15] `think` field verified end-to-end — retrospect claim 3 falsified
 
 **Target:** `proxy-rust/src/main.rs` — `extract_anthropic` + `accumulate_sse_anthropic` think capture
