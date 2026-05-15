@@ -37,11 +37,11 @@ This specification acknowledges the Sharif AAT draft as the baseline ledger comp
 
 ## 4. Entry format
 
-### 3.1 Encoding
+### 4.1 Encoding
 
 Each entry MUST be a single JSON object serialized as one line of UTF-8 text terminated by a single LF (`\n`, U+000A). CRLF MUST NOT be used.
 
-### 3.2 Required fields
+### 4.2 Required fields
 
 Every entry MUST contain:
 
@@ -57,21 +57,23 @@ Every entry MUST contain:
 | `act`   | object \| null | Action object, or `null` if this entry carries no action.            |
 | `prev`  | string  | `"sha256:" + lowercase_hex(sha256(JCS_bytes(previous_entry)))`. See §10.    |
 
-### 3.3 Optional fields
+### 4.3 Optional fields
 
-| Field   | Type   | Meaning                                                            |
-|---------|--------|--------------------------------------------------------------------|
-| `cont`  | string | `"open"` or `"closed"`. See §10. Absence is equivalent to `"closed"`. |
-| `error` | object | Forensic error record. Present only when `act` is `null` due to a schema or processing failure. |
+| Field          | Type          | Meaning                                                                                                                                                                                                                                                                 |
+|----------------|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cont`         | string        | `"open"` or `"closed"`. See §7. Absence is equivalent to `"closed"`.                                                                                                                                                                                                   |
+| `error`        | object        | Forensic error record. Present only when `act` is `null` due to a schema or processing failure.                                                                                                                                                                         |
+| `think`        | array \| null | Provider extended reasoning tokens, captured verbatim. For Anthropic: array of `thinking`-type content blocks. For Grok: `reasoning_content` string. For Gemini: array of `thought: true` parts. `null` when the model produced no reasoning trace or the provider does not expose it. |
+| `transparency` | object        | `{"think": bool, "act": bool}` — machine-readable presence flags indicating whether `think` and `act` carry non-null data. Enables downstream analysis without content inspection.                                                                                     |
 
 Implementations MAY add fields not listed here. Readers MUST ignore unknown fields (forward compatibility).
 
-### 3.4 Field constraints
+### 4.4 Field constraints
 
 - `seq` of the first entry of a session MUST be 0.
 - `seq` MUST increase by exactly 1 between consecutive entries of the same session.
 - `prev` of the entry with `seq = 0` MUST be `"sha256:" + ("0" repeated 64 times)`.
-- `act` MUST be `null` on any entry with `cont: "open"` (see §10.3).
+- `act` MUST be `null` on any entry with `cont: "open"` (see §7.3).
 
 ---
 
@@ -115,19 +117,19 @@ The hash is computed once per LLM call, not per entry, and reused for every entr
 
 Long reasoning MAY be split across multiple entries.
 
-### 9.1 Open continuation
+### 7.1 Open continuation
 
 An entry with `cont: "open"` indicates that further entries with the same `sid` will continue the same logical reasoning unit.
 
-### 9.2 Closed continuation
+### 7.2 Closed continuation
 
 An entry with `cont: "closed"` (or with `cont` absent) terminates the logical reasoning unit.
 
-### 9.3 Action gating
+### 7.3 Action gating
 
 An `act` other than `null` MUST appear only on a closed entry. An open entry with a non-null `act` is a protocol violation; readers MUST flag it and writers MUST NOT produce it.
 
-### 9.4 Abandoned continuations
+### 7.4 Abandoned continuations
 
 If a session is reopened and the last entry of that session has `cont: "open"`, the implementation MUST append exactly one sealing entry with the next `seq`, `cont: "abandoned"`, `reason: ""`, `act: null`, and a valid `prev` before any new content is written.
 
@@ -135,7 +137,7 @@ If a session is reopened and the last entry of that session has `cont: "open"`, 
 
 ## 8. Storage layout
 
-### 9.1 Required layout
+### 8.1 Required layout
 
 A conformant implementation MUST organize ledger files as:
 
@@ -148,13 +150,13 @@ A conformant implementation MUST organize ledger files as:
 
 Where `<root>` is an implementation-chosen directory (default name SHOULD be `.harness/`).
 
-### 9.2 Session files
+### 8.2 Session files
 
 - Exactly one file per session, named `<sid>.jsonl`.
 - File MUST contain only entries with that `sid`.
 - File MUST contain only entries of a single `v` (see §10).
 
-### 9.3 The index
+### 8.3 The index
 
 `index.jsonl` is itself a hash-chained ledger. Each line is a JSON object:
 
@@ -169,13 +171,13 @@ Where `<root>` is an implementation-chosen directory (default name SHOULD be `.h
 | `last_hash`   | string  | `"sha256:" + lowercase_hex(sha256(JCS_bytes(last_entry)))`.   |
 | `prev`        | string  | Hash of previous index entry, per §5 rules.                   |
 
-### 9.4 Index lifecycle
+### 8.4 Index lifecycle
 
 - One index entry per session, appended on clean session shutdown.
 - On startup, the implementation MUST enumerate `sessions/`. For every session file with no corresponding index entry, the implementation MUST compute `entry_count` and `last_hash` by reading the session file and append a reconciling index entry.
 - The session file is the source of truth that a session existed. The index is derivable and MAY be rebuilt by scanning.
 
-### 9.5 Canonical root (optional)
+### 8.5 Canonical root (optional)
 
 An implementation MAY accept configuration designating a fixed `<root>` (e.g., a repository's `.harness/` directory) as the canonical ledger location. This is a deployment configuration; it does not change protocol semantics.
 
@@ -203,6 +205,14 @@ A session's `seq` is monotonic for the lifetime of its `sid`, regardless of how 
 ### 9.4 Single writer per session
 
 A session file MUST have at most one writer at any instant. Implementations SHOULD use a file lock (`flock` / `LockFileEx`) to enforce this. Cross-session parallelism is unrestricted.
+
+### 9.5 Streaming ceiling (SSE mode)
+
+When the upstream response carries `Content-Type: text/event-stream`, the implementation SHOULD use a tee architecture: chunks are forwarded to the caller as they arrive, and a single ledger entry is written after the stream closes. In this mode the strict §9.1 guarantee is weakened — the caller receives content before the entry is durably persisted.
+
+This is a documented ceiling, not a protocol violation. The alternative — buffering the full SSE stream before forwarding — preserves fail-closed semantics but prevents real-time streaming, making the proxy unusable in practice. Non-streaming exchanges (buffered mode) retain the strict §9.1 guarantee unchanged.
+
+Implementations in SSE mode MUST log an error if the stream-end ledger write fails, including the `sid` and expected `seq` of the unrecorded entry.
 
 ---
 
@@ -270,11 +280,33 @@ Two reference implementations are maintained in this repository:
 
 A Rust binary implementing the invisible MITM proxy deployment model (§1).
 
-- Listens on `127.0.0.1:8080` by default.
-- Environment variables: `HARNESS_ROOT` (ledger directory, default `.harness/`), `HARNESS_UPSTREAM` (upstream API base URL, default `https://api.anthropic.com`).
-- Implements §4 entry format, §5 hash chain, §6 `in` field, §8 storage layout, §9 write semantics (fail-closed, `fsync` before response released).
+**Listens on** `127.0.0.1:8080` by default (override: `HARNESS_LISTEN`).
+
+**Routes:**
+
+| Route | Provider |
+|-------|----------|
+| `POST /v1/chat/completions` | OpenAI, Grok |
+| `POST /v1/messages` | Anthropic |
+| `POST /v1beta/models/*` | Google Gemini |
+
+**Environment variables:**
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `HARNESS_ROOT` | `.harness/` | Ledger root directory |
+| `HARNESS_LISTEN` | `127.0.0.1:8080` | Proxy listen address |
+| `UPSTREAM_BASE_URL` | `https://api.openai.com` | OpenAI-compatible upstream base |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Anthropic upstream base |
+| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com` | Gemini upstream base |
+
+**Per-entry fields captured:** `think` (provider reasoning tokens; §4.3), `transparency` (§4.3), `act` (tool calls or function calls).
+
+**Streaming:** SSE responses are forwarded immediately via tee architecture; ledger entry written at stream close. Strict fail-closed semantics (§9.1) are relaxed in SSE mode — see §9.5.
+
+- Implements §4 entry format, §5 hash chain, §6 `in` field, §8 storage layout, §9 write semantics.
 - Conformance tier: **L2**.
-- Pre-built binaries (`harness-proxy.exe` / `harness-proxy`) are produced by CI at `.github/workflows/build-proxy.yml`.
+- Pre-built binaries (`harness-proxy.exe` / `harness-proxy`) produced by CI at `.github/workflows/build-proxy.yml`.
 
 ---
 
