@@ -54,19 +54,20 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let harness_root = PathBuf::from(std::env::var("HARNESS_ROOT").unwrap_or_else(|_| {
-        // Resolution order:
-        // 1. HARNESS_ROOT env var (handled above — ai-steward sets this)
-        // 2. Git repo root of cwd → <repo>/.harness  (project sessions, committable)
-        // 3. ~/.harness                               (global fallback, no repo)
-        if let Some(repo_root) = find_git_root() {
-            return repo_root.join(".harness").to_string_lossy().into_owned();
-        }
+    // Resolution order:
+    // 1. HARNESS_ROOT env var (explicit — ai-steward sets this)
+    // 2. Git repo root of cwd → <repo>/.harness  (project sessions, committable)
+    // 3. ~/.harness                               (global fallback, no git repo)
+    let harness_root: PathBuf = if let Ok(val) = std::env::var("HARNESS_ROOT") {
+        PathBuf::from(val)
+    } else if let Some(repo_root) = find_git_root() {
+        repo_root.join(".harness")
+    } else {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_else(|_| ".".to_string());
-        format!("{}/.harness", home)
-    }));
+        PathBuf::from(home).join(".harness")
+    };
     let upstream_base = std::env::var("UPSTREAM_BASE_URL")
         .unwrap_or_else(|_| "https://api.openai.com".to_string())
         .trim_end_matches('/')
