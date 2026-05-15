@@ -1,5 +1,62 @@
 ﻿
 ---
+## [2026-05-15] Improve — extraction layer unit tests; operational rule closed
+
+**Target:** `proxy-rust/src/main.rs` — extraction functions
+**Ask:** "The harness protocol and ai-steward" + "please continue, trail everything, improve skill."
+
+### Intent narration
+Session context restated both projects in scope. harness-protocol's retrospect carried one active operational rule with no resolution date: "The extraction layer has zero unit tests." ai-steward has no code yet — its structural integrity layer (harness) must be verifiable before the first ai-steward pipeline can trust the evidence it produces. Building ai-steward on unverified extraction logic inverts the trust model vision describes. Extraction tests first.
+
+Alternative rejected: starting ai-steward execution layer code before harness tests exist.
+
+### Examine
+
+Six extraction functions. Zero tests. Every claim about what enters the ledger rested on code review alone. The normalization fix from the previous iteration (streaming think → arrays) was applied with no test to verify it. Functions:
+- `extract_openai`, `extract_anthropic`, `extract_gemini` — buffered (3)
+- `accumulate_sse_openai`, `accumulate_sse_anthropic`, `accumulate_sse_gemini` — streaming (3)
+
+**Inconsistency lens:** `extract_anthropic` and `extract_gemini` already had correct `array` output. The streaming variants were fixed last iteration without tests. The test gap is asymmetric — buffered paths have more scrutiny (end-to-end verification done) but streaming paths have less.
+
+**Waste lens:** No test infrastructure at all. Starting from zero means each test needs its own fixture construction. Opportunity to define a shared `sse()` helper that eliminates repeated boilerplate.
+
+### Challenge
+
+All six functions are pure `(&[u8]) -> (String, Option<Value>, Option<Value>)`. Perfectly unit-testable. No subtler more important finding — the tests directly close the stated operational rule.
+
+### Decision and prediction
+
+**Change:** 17 unit tests across all six functions, added as `#[cfg(test)] mod extraction_tests` at end of `main.rs`. One shared `sse()` helper builds SSE byte buffers from `json!` event slices. Tests cover: text-only, reasoning/thinking, tool calls, multi-tool, invalid JSON, and streaming accumulation across delta events.
+
+**Prediction:** All 17 tests pass on CI. Streaming think normalization fix confirmed by the new streaming tests. CI count: 16 ledger/integrity + 17 extraction = 33 total.
+
+### Act
+
+Commit `9e423ea`: `proxy-rust/src/main.rs` +268 lines. CI triggered.
+
+Test breakdown:
+- `extract_openai`: 4 tests (text, Grok reasoning, tool_calls, invalid)
+- `extract_anthropic`: 4 tests (text, thinking block, single tool, multi-tool)
+- `extract_gemini`: 3 tests (text, thought part, functionCall)
+- `accumulate_sse_openai`: 2 tests (text, Grok reasoning stream)
+- `accumulate_sse_anthropic`: 3 tests (text, thinking_delta, tool_use + input_json_delta)
+- `accumulate_sse_gemini`: 2 tests (text, thought stream)
+
+`sse_anthropic_tool_use` verifies the input_json_delta accumulation path: two partial fragments `{"n":` + `42}` assembled to `{"n":42}` and parsed back to a structured input value.
+
+### Reflect
+
+**Blind spot:** Tests use synthetic fixture payloads — verify extraction logic but not the full round-trip. Streaming paths and Grok/Gemini remain runtime-unverified.
+
+**`[!REALIZATION]`:** ai-steward and harness-protocol are not independent projects on a shared roadmap — harness is *structurally required* before ai-steward can be trusted. Vision is explicit: "If proxy and audit-trail diverge, the proxy wins." This only holds if extraction is correct. The extraction tests are a precondition for ai-steward's reasoning integrity claim, not just a harness-internal concern.
+
+### Candidate next moves (ranked)
+
+1. **Wait for CI green** — verify 33 tests pass; extraction operational rule formally closed.
+2. **ai-steward first design sprint** — run retrospect on ai-steward (no `retrospect.md` exists yet), then decide the execution layer's language/runtime. Vision says "informed by Evo, not derived from it" — Evo's ARCHITECTURE.md should be read before the first design commit.
+3. **Streaming end-to-end verify** — make a streaming Anthropic call with extended thinking, confirm `[{type:"thinking",thinking:"..."}]` shape in the ledger.
+
+---
 ## [2026-05-15] Improve — think field shape normalization; claim 6 formally closed
 
 **Target:** `proxy-rust/src/main.rs` — all six `think` capture paths; `SPEC.md` §4.3
