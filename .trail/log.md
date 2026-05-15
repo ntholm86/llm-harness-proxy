@@ -740,3 +740,34 @@ Prediction held. 7 lines changed. The fix pattern is now symmetric with `think_b
 1. `extract_gemini` buffered multi-function-call capture — same last-wins bug as the Anthropic extractor; small, completes the cross-provider capture consistency sweep; integrity layer single-writer coverage is now done
 2. End-to-end proxy verification — push to origin, CI builds binary, download artifact, run against real API key; oldest open commitment
 3. Concurrent-write test — two goroutine-style threads calling `append_entry` with the same `sid`; exercises OS `O_APPEND` guarantee; small addition to the test module
+
+---
+## [2026-05-15] Gemini multi-function-call capture — last-wins bug fixed in both paths
+
+**Target:** `proxy-rust/src/main.rs` — `extract_gemini`, `accumulate_sse_gemini`
+**Commit:** `9ebe469`
+
+**Interpret:** Three consecutive integrity iterations completed; the arc's own `[!REALIZATION]` said "capture layer is now unblocked." Ranked #1 candidate from last trail entry. This closes the last-wins bug across all three provider families.
+
+**Pre-commit prediction:** Both functions produce unchanged output for single-`functionCall` responses (all existing callers unaffected). Multiple `functionCall` parts now produce `Value::Array` instead of last-wins. No handler changes. Compiles on CI.
+
+**Examine:**
+`extract_gemini`: `think_blocks` was already a `Vec<Value>` producing `Value::Array`; `act` was still scalar — an asymmetry that was the direct analogue of the Anthropic bug fixed in commit `cbdb37e`. `accumulate_sse_gemini` had the same pattern. Both functions iterated over `parts` and assigned `act = Some(fc.clone())` on each `functionCall`, keeping only the last.
+
+**Fix:** Replaced `let mut act: Option<Value> = None` with `let mut fn_call_blocks: Vec<Value> = Vec::new()` in both functions. Loop now pushes instead of assigns. Final `match fn_call_blocks.len()` produces `None / single Object / Array` — identical schema to the Anthropic extractor.
+
+**Reflect:**
+- *Current model:* The last-wins bug class is now fully resolved across all three provider families and both execution paths (buffered + streaming): OpenAI streaming (`1975dd7`), Anthropic streaming (`1975dd7`), Anthropic buffered (`cbdb37e`), Gemini buffered (this), Gemini streaming (this). A future run can falsify this by finding a fourth extraction site that still uses last-wins for tool/function call capture.
+- *Blind spot:* Neither Gemini extractor has been tested against real Gemini multi-function-call responses. The fix is structurally correct but the runtime path through `gemini_handler` has not been exercised end-to-end. This is the same gap named in retrospect.
+- *Pushback:* A reader familiar with the Gemini API would note that Gemini typically returns a single `functionCall` per response chunk (unlike Anthropic which can batch multiple `tool_use` blocks). The multi-block case may be rare in practice, but the ledger's job is faithfulness — every call must be captured regardless of frequency.
+
+**Across-trail reflection:**
+- *Recurring finding-class:* FIRED — the last-wins bug appeared in 4 separate commits over 3 sessions: OpenAI streaming, Anthropic streaming, Anthropic buffered, Gemini both. The class is now closed. This is arc-level evidence that the original extraction design (scalar `act`) was structurally wrong for multi-tool use cases, and was fixed incrementally across the full provider matrix. The arc can be read as: "the extraction layer was built for single-tool responses and was retrofitted for multi-tool faithfulness."
+- *About to declare silence:* not fired
+- *Contradicts prior [!REALIZATION]:* not fired
+- *Operator explicitly asked:* not fired
+
+**Candidate Next Moves:**
+1. End-to-end proxy verification — oldest open commitment; push to origin, CI builds binary, download artifact, run against real API key; the extraction and integrity layers are now complete and this is the first action that actually demonstrates what vision promises
+2. Retrospect run — five iterations since the last retrospect (`2a7a379`); the arc has shifted substantially (integrity layer coverage, capture consistency sweep, torn-line fix); a fresh retrospect would update the current-location reading and produce new operational rules
+3. Concurrent-write test for ledger — exercises OS `O_APPEND` guarantee; small addition to the test module; the integrity layer's one remaining untested property
