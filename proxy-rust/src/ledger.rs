@@ -45,9 +45,11 @@ impl SessionLedger {
         sid: &str,
         model: &str,
         in_hash: &str,
+        has_think: bool,
         think: Option<&Value>,
-        reason: &str,
+        has_act: bool,
         act: Option<&Value>,
+        reason: &str,
     ) -> Result<EntryMeta> {
         let sessions_dir = root.join("sessions");
         std::fs::create_dir_all(&sessions_dir)
@@ -75,6 +77,10 @@ impl SessionLedger {
             "ts": ts,
             "model": model,
             "in": in_hash,
+            "transparency": {
+                "think": has_think,
+                "act": has_act,
+            },
             "think": think,
             "reason": reason,
             "act": act,

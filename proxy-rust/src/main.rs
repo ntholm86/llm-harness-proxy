@@ -140,7 +140,9 @@ async fn openai_handler(
                 }
             }
             let (reason, think, act) = accumulate_sse_openai(&buf);
-            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, think.as_ref(), &reason, act.as_ref()) {
+            let has_think = think.is_some();
+            let has_act = act.is_some();
+            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
                 Ok(entry) => info!("stream ledger: sid={} seq={}", sid_task, entry.seq),
                 Err(e) => error!("stream ledger write failed — stream unrecorded: {e}"),
             }
@@ -160,7 +162,7 @@ async fn openai_handler(
         let (reason, think, act) = extract_openai(&res_bytes);
         let entry = SessionLedger::append_entry(
             &state.harness_root, &sid, &model, &in_hash,
-            think.as_ref(), &reason, act.as_ref(),
+            think.is_some(), think.as_ref(), act.is_some(), act.as_ref(), &reason,
         )
         .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
         let mut res = Response::new(Body::from(res_bytes));
@@ -250,7 +252,9 @@ async fn anthropic_handler(
                 }
             }
             let (reason, think, act) = accumulate_sse_anthropic(&buf);
-            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, think.as_ref(), &reason, act.as_ref()) {
+            let has_think = think.is_some();
+            let has_act = act.is_some();
+            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
                 Ok(entry) => info!("stream ledger: sid={} seq={}", sid_task, entry.seq),
                 Err(e) => error!("stream ledger write failed — stream unrecorded: {e}"),
             }
@@ -269,7 +273,7 @@ async fn anthropic_handler(
         let (reason, think, act) = extract_anthropic(&res_bytes);
         let entry = SessionLedger::append_entry(
             &state.harness_root, &sid, &model, &in_hash,
-            think.as_ref(), &reason, act.as_ref(),
+            think.is_some(), think.as_ref(), act.is_some(), act.as_ref(), &reason,
         )
         .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
         let mut res = Response::new(Body::from(res_bytes));
