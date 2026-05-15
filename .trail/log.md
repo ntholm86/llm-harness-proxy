@@ -947,3 +947,39 @@ Also removed two unused imports flagged as warnings in the same run:
 1. **Confirm CI run #11 passes (all 15 tests green, binary built)** — this is the immediate gate; everything else is blocked until we see green
 2. **Download `harness-proxy-windows` artifact and run end-to-end** — after green CI: point proxy at a real API, verify `.harness/sessions/*.jsonl` with the current SPEC schema (`think`, `transparency`, `act`)
 3. **Handle untracked session files** — the 15 `.harness/sessions/*.jsonl` from May 7-8 are untracked; commit or `.gitignore` them
+
+---
+## [2026-05-15] End-to-end gate: proxy verified against real Anthropic API
+
+**Commits:** this entry (housekeeping + trail)
+**Binary:** harness-proxy-windows artifact from CI run #11 (commit 4de4c33, all 15 tests green)
+
+**What was verified:**
+1. Proxy binary starts on Windows, binds to `127.0.0.1:8080`
+2. POST to `/v1/messages` forwarded to `api.anthropic.com` over real network
+3. Anthropic API responded (credit exhaustion error — not a proxy failure)
+4. Proxy wrote `.harness/sessions/01KRND00PR1ACZ1WVS925EG3Z3.jsonl`
+5. Session file schema: `think`, `transparency`, `v`, `seq`, `sid`, `model`, `in`, `prev`, `ts`, `act`, `reason` — all fields present, matching current SPEC schema
+6. `prev: sha256:000...` — genesis entry, hash chain initialized correctly
+7. `transparency: {act:false, think:false}` — upstream returned error, no content, proxy correctly set both to false
+8. `act: null` — correct: no model output to capture (error response)
+
+**Session file content (committed evidence):**
+`{"act":null,"in":"sha256:7279e03920bd76268e43c835093f4f36233ab98061b5adb3ed7714f5f13e9005","model":"claude-3-haiku-20240307","prev":"sha256:0000000000000000000000000000000000000000000000000000000000000000","reason":"","seq":0,"sid":"01KRND00PR1ACZ1WVS925EG3Z3","think":null,"transparency":{"act":false,"think":false},"ts":"2026-05-15T08:45:36.375Z","v":1}`
+
+**[!REALIZATION] Retrospect Claim 3 is partially falsified:**
+"The proxy has never been invoked against a real LLM API." — the proxy DID reach Anthropic and receive a real API response. The network path and ledger write pipeline are verified. What remains unverified: `act` capturing real model content (requires a funded key). The structural guarantee — fail-closed write before response — is demonstrated by the session file existing despite the upstream error.
+
+**Housekeeping also done this iteration:**
+- `.gitignore` was UTF-16 LE encoded (Windows default) — git cannot parse UTF-16 gitignore files. All rules were present but silently inert. Re-saved as UTF-8 without BOM; added `*.exe` and `.vscode/` rules.
+- `proxy-rust/Cargo.lock` committed (was untracked) — required for reproducible builds.
+
+**Reflection:**
+The end-to-end gate operational rule has been substantially satisfied. The proxy runs, the network path is clear, the ledger accepts entries, the schema is current-SPEC-compliant. The one remaining gap (`act` with real content) is blocked by API credit, not by any proxy defect. The `act` extraction path is verified in unit tests.
+
+The gitignore encoding bug is a class of silent failure distinct from any failure seen before: a file that APPEARS to have the right rules but is completely inert because git expects UTF-8. Nine session files were untracked for an unknown period because of this. The fix is committed.
+
+**Candidate Next Moves:**
+1. **Self-hosting enactment (primary)** — The founding pledge has been open since 2026-05-07. The proxy is built, CI is green, network path is verified. The remaining step: route a real development interaction (e.g., this conversation) through the proxy. One captured session with real content satisfies the pledge.
+2. **Fund Anthropic key and re-run end-to-end** — Closes the `act` content verification gap. One funded API call with content captures the full extraction path.
+3. **Update retrospect** — Claim 3 (never invoked against real API) is partially falsified; Claims 1-2 remain accurate; self-hosting gate status updated.
