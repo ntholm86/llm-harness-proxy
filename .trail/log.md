@@ -1,5 +1,31 @@
 ﻿
 ---
+## [2026-05-15] `think` field verified end-to-end — retrospect claim 3 falsified
+
+**Target:** `proxy-rust/src/main.rs` — `extract_anthropic` + `accumulate_sse_anthropic` think capture
+
+**Intent:** Retrospect claim 3 stated: "The `think` field has never been verified end-to-end with a real model." One non-streaming call with `thinking: {type: "enabled", budget_tokens: 1024}` closes that gap.
+
+**Test call:**
+```powershell
+POST http://127.0.0.1:8474/v1/messages
+Headers: x-api-key, anthropic-version: 2023-06-01
+Body: {"model":"claude-haiku-4-5","max_tokens":4096,"thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"user","content":"What is 12 multiplied by 17? Think step by step."}]}
+```
+
+**Result:**
+- HTTP 200
+- Session file: `C:\git\harness-protocol\.harness\sessions\01KRNZ2SSP1B612XB512D2GJ1N.jsonl`
+- `seq=0`, `model=claude-haiku-4-5`
+- `transparency = {act: false, think: true}`
+- `think = [{type: "thinking", thinking: "I need to calculate 12 × 17...", signature: "..."}]` — one Anthropic thinking block, array shape
+- Thinking text: full step-by-step calculation (12×17=204, verified two ways)
+
+**Shape matches spec:** SPEC.md §4.3 says `think: array | null`, Anthropic: "array of `thinking`-type content blocks." The proxy stores `Value::Array(think_blocks)` — correct. PowerShell `ConvertFrom-Json` auto-unwrapped the single-element array in earlier display; the raw JSONL has the array.
+
+**[!CLAIM FALSIFIED] Retrospect claim 3: "`think` field requires runtime verification."** — falsified. Non-null `think`, `transparency.think: true`, correct array shape, real Anthropic API response. Extraction is verified end-to-end.
+
+---
 ## [2026-05-15] New binary deployed — git-root HARNESS_ROOT resolution verified
 
 **Target:** `C:\git\harness-protocol\harness-proxy.exe` — local deployment of commit `d3db558`+
