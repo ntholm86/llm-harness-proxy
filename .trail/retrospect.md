@@ -143,3 +143,21 @@ The proxy is built, CI is green, network path is verified. The founding pledge r
 - **Single-writer integrity is complete. Do not revisit without a new finding.** (Carried forward — still valid.)
 - **Spec updates belong with every feature commit.** (Carried forward.)
 - **Encoding awareness.** On Windows, text files created by VS Code default to UTF-16 LE with BOM when the user selects "New File" with certain system locales. Any configuration file parsed by a Unix-origin tool (git, cargo, etc.) must be verified as UTF-8. This applies to: `.gitignore`, `.cargo/config.toml`, any future `.env` file.
+
+---
+## Retrospect update: 2026-05-15 (run: full end-to-end closure)
+
+_Appended; prior content preserved above._
+
+**Claim 3 FULLY falsified — proxy has been invoked against a real LLM API with content captured.**
+Two calls were made through the running proxy binary (CI run #11, commit 4de4c33) to Anthropic `claude-haiku-4-5`:
+- Call 1: text response ? `reason: "harness e2e OK"`, `transparency.act: false` ?
+- Call 2: tool use ? `act: {name:"record_result", input:{status:"harness-act-verified"}}`, `transparency.act: true` ?
+
+Every SPEC schema field (`v`, `seq`, `sid`, `model`, `in`, `ts`, `prev`, `think`, `reason`, `act`, `transparency`) is present and correct in both session files. The core claim — "the agent is structurally incapable of receiving a response until the ledger has accepted it" — is demonstrated by the session files existing for both calls.
+
+**New primary rule: Self-hosting gate.**
+The end-to-end gate is closed. The founding pledge (2026-05-07) is the sole remaining open commitment: route a real development interaction on harness-protocol through the proxy. One captured session file from a development interaction satisfies it. All technical blockers are resolved — the proxy works, the network path is verified, the model is known (`claude-haiku-4-5`).
+
+**Observation: new `caller` field in Anthropic tool_use.**
+Anthropic now returns a `caller: {type: "direct"}` field inside tool_use blocks. The proxy captures it verbatim (dumb-pipe). Not a defect; noted for future reference.

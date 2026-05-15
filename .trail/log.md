@@ -983,3 +983,30 @@ The gitignore encoding bug is a class of silent failure distinct from any failur
 1. **Self-hosting enactment (primary)** — The founding pledge has been open since 2026-05-07. The proxy is built, CI is green, network path is verified. The remaining step: route a real development interaction (e.g., this conversation) through the proxy. One captured session with real content satisfies the pledge.
 2. **Fund Anthropic key and re-run end-to-end** — Closes the `act` content verification gap. One funded API call with content captures the full extraction path.
 3. **Update retrospect** — Claim 3 (never invoked against real API) is partially falsified; Claims 1-2 remain accurate; self-hosting gate status updated.
+
+---
+## [2026-05-15] End-to-end gate: FULLY closed — act, reason, transparency all verified
+
+**Model used:** `claude-haiku-4-5` (resolves to `claude-haiku-4-5-20251001`)
+**Session files:** `C:\tmp\harness-e2e\sessions\`
+
+**Call 1 — text response (reason capture):**
+Request: `"Say exactly: harness e2e OK"`
+Session: `reason: "harness e2e OK"`, `act: null`, `transparency: {act:false, think:false}` ✓
+
+**Call 2 — tool use (act capture):**
+Request: tool-calling prompt with `record_result` tool definition
+Session: `act: {name:"record_result", input:{status:"harness-act-verified"}}`, `transparency: {act:true, think:false}` ✓
+
+**Session file 2 (committed evidence):**
+`{"act":{"caller":{"type":"direct"},"id":"toolu_012WfozvV6iWi1b9Hzf358rw","input":{"status":"harness-act-verified"},"name":"record_result","type":"tool_use"},"in":"sha256:faf7bc3ec123f33b51a916629394137d8f455b1e69684e58fc44c4adfc913ec6","model":"claude-haiku-4-5","prev":"sha256:0000000000000000000000000000000000000000000000000000000000000000","reason":"","seq":0,"sid":"01KRNDE2C2DBE9AWNYPXKGSD7M","think":null,"transparency":{"act":true,"think":false},"ts":"2026-05-15T08:53:17.241Z","v":1}`
+
+**[!REALIZATION] Retrospect Claim 3 is now fully falsified.**
+Both the text path (`reason`) and the tool-use path (`act`) are verified against the real Anthropic API. Every SPEC schema field is present and correct. The proxy is structurally capable: a response cannot be received by the caller until the ledger has accepted the entry — demonstrated by the session file existing for both calls.
+
+**Observation: `caller` field in tool_use.**
+The Anthropic response includes a `caller: {type: "direct"}` field inside the tool_use block that is not in the SPEC. The proxy captures it verbatim (full tool_use object stored as-is). This is benign — the dumb-pipe principle means the proxy does not filter tool_use fields. But it is a new Anthropic field not present in earlier sessions. Worth noting in case future extraction logic needs to be schema-aware.
+
+**Remaining open items:**
+1. **Self-hosting gate** — the founding pledge. Now the only open commitment. Route a real development interaction on this project through the proxy.
+2. `think` field capture — not verified (requires extended thinking model and a prompt that triggers it). Low priority; unit tests cover the extraction logic.
