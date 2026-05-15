@@ -662,3 +662,46 @@ Prediction held. 7 lines changed. The fix pattern is now symmetric with `think_b
 1. `End-to-end proxy verification` — run the proxy with a real LLM client; directly tests the core claim; has been deferred since 2026-05-08; the May 8 binary is available, or push to CI for the current codebase
 2. `SPEC §12 conformance tests` — write Rust unit tests for ledger.rs; integrity layer (hash chain, fail-closed, fsync) has no test coverage; the test structure (inline `#[cfg(test)]` modules) requires no new build infrastructure
 3. `extract_gemini buffered multi-function-call capture` — `extract_gemini` also uses `act = Some(fc.clone())` (last-wins) for `functionCall` parts; same pattern as the just-fixed Anthropic bug; third provider has same gap
+
+---
+## [2026-05-15] SPEC §12 conformance tests — ledger integrity layer
+
+**Target:** `proxy-rust/src/ledger.rs`
+**Commit:** `c36798b`
+
+**Interpret:** "continue" with retrospect operational rule "Integrity layer before capture layer" in effect. The last trail entry ranked `extract_gemini` first, but that is a capture-layer fix. The retrospect explicitly overrides: the integrity layer (`ledger.rs`) has never been tested. This iteration adds four `#[cfg(test)]` tests covering the integrity properties the spec claims.
+
+**Pre-commit prediction:** All four tests compile and pass on CI. No production code is changed. The torn line recovery write gap is documented in a test comment but not fixed — the fix requires a second change (return clean-end offset from `scan_tail`, truncate before recovery write).
+
+**Examine:** `ledger.rs` implements `append_entry` (fail-closed write), `scan_tail` (chain recovery), `hash_entry` (SHA-256/JCS). Three core properties — genesis correctness, hash chain integrity, tamper detection — have zero test coverage. While reading `scan_tail`, a recovery-write gap surfaced: scan correctly computes `(seq, prev)` at a torn line, but `append_entry` then writes the recovery entry after the torn bytes (append mode, no truncation), making recovery entry + torn bytes share one line → unreadable on next scan.
+
+**Lenses:**
+- *Purpose:* tests were missing for the core claims of the integrity layer. This gap exists since the initial Rust implementation (2026-05-08).
+- *Inconsistency:* scan computation is correct; write path is not — an asymmetry between `scan_tail`'s handling and the write path.
+- *Waste:* none added — tests are additive.
+
+**Challenge:** The `extract_gemini` fix is smaller and cleaner. But the operational rule says integrity before capture. The torn line bug is a genuine second change — forcing it into this iteration would violate "one change per iteration."
+
+**Tests added:**
+- `genesis_seq_and_prev` — fresh session: seq=0, prev=GENESIS_PREV in written entry
+- `hash_chain_round_trip` — 3 entries; each `prev` equals `hash_entry()` of the prior entry
+- `tamper_detection` — mutating entry 0's `reason` produces a different hash; `entry[1].prev` then diverges
+- `scan_tail_stops_at_torn_line` — torn file (complete entry + partial JSON fragment); `scan_tail` returns `(1, hash(entry0))`; test comment documents recovery-write gap as a future iteration
+
+**[!REALIZATION]** The torn line recovery is split across two layers with different semantics. `scan_tail` handles it correctly in its domain (computation). The write path (`append_entry`) does not compensate — it writes without knowing whether there is contamination at the end of the file. The gap is real but not data-loss in practice: the torn fragment occurs only on a crash mid-write, which means the model response was never released (fail-closed holds), and on recovery the proxy continues from the correct `seq`/`prev` even if the recovery entry is later unreadable due to the contamination. The gap degrades auditability (the recovery entry is lost), not the fail-closed guarantee.
+
+**Reflect:**
+- *Current model:* The integrity layer's core claim (fail-closed, hash chain) is structurally sound. The two gaps (torn line recovery write; zero end-to-end test) are independent: the first is a file-layout issue in the write path; the second is a deployment gap, not a code gap.
+- *Blind spot:* This iteration did not test concurrent writes (two calls to `append_entry` with the same `sid` simultaneously). OS append semantics may provide safety, but it was not examined.
+- *Pushback:* A reader who knows this target well would note that tests that never ran on real hardware (only CI) don't catch platform-specific fsync or file-lock behavior differences. The test suite is correct Rust logic; it says nothing about the OS-level guarantees.
+
+**Across-trail reflection:**
+- *Recurring finding-class:* not fired — first test-writing iteration; no pattern yet
+- *About to declare silence:* not fired — change made
+- *Contradicts prior [!REALIZATION]:* not fired
+- *Operator explicitly asked:* not fired
+
+**Candidate Next Moves:**
+1. `extract_gemini` buffered multi-function-call capture — same last-wins bug as the Anthropic extractor just fixed; small, safe, and completes the cross-provider consistency sweep
+2. Torn line recovery write fix — return clean-end offset from `scan_tail`, truncate before recovery write; small change to `ledger.rs` while the test harness is fresh
+3. End-to-end proxy verification — oldest open commitment; requires pushing commits to origin (CI builds binary), then downloading artifact and running against a real API key
