@@ -31,6 +31,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('proxy-rust/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
+      - name: Run tests
+        working-directory: proxy-rust
+        run: cargo test --verbose
+
       - name: Build release binary
         working-directory: proxy-rust
         run: cargo build --release --verbose
@@ -63,6 +67,10 @@ jobs:
             proxy-rust/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('proxy-rust/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run tests
+        working-directory: proxy-rust
+        run: cargo test --verbose
 
       - name: Build release binary
         working-directory: proxy-rust
