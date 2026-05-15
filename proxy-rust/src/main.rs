@@ -613,19 +613,24 @@ fn extract_gemini(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
     let Ok(v) = serde_json::from_slice::<Value>(bytes) else { return (String::new(), None, None) };
     let mut reason = String::new();
     let mut think_blocks: Vec<Value> = Vec::new();
-    let mut act: Option<Value> = None;
+    let mut fn_call_blocks: Vec<Value> = Vec::new();
     if let Some(parts) = v["candidates"][0]["content"]["parts"].as_array() {
         for part in parts {
             if part["thought"].as_bool() == Some(true) {
                 think_blocks.push(part.clone());
             } else if let Some(fc) = part.get("functionCall").filter(|v| !v.is_null()) {
-                act = Some(fc.clone());
+                fn_call_blocks.push(fc.clone());
             } else if let Some(t) = part["text"].as_str() {
                 reason.push_str(t);
             }
         }
     }
     let think = if think_blocks.is_empty() { None } else { Some(Value::Array(think_blocks)) };
+    let act = match fn_call_blocks.len() {
+        0 => None,
+        1 => fn_call_blocks.into_iter().next(),
+        _ => Some(Value::Array(fn_call_blocks)),
+    };
     (reason, think, act)
 }
 
@@ -635,7 +640,7 @@ fn accumulate_sse_gemini(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
     let text = std::str::from_utf8(buf).unwrap_or("");
     let mut reason = String::new();
     let mut thinking = String::new();
-    let mut act: Option<Value> = None;
+    let mut fn_call_blocks: Vec<Value> = Vec::new();
 
     for line in text.lines() {
         if let Some(data) = line.strip_prefix("data: ") {
@@ -647,7 +652,7 @@ fn accumulate_sse_gemini(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
                                 thinking.push_str(t);
                             }
                         } else if let Some(fc) = part.get("functionCall").filter(|v| !v.is_null()) {
-                            act = Some(fc.clone());
+                            fn_call_blocks.push(fc.clone());
                         } else if let Some(t) = part["text"].as_str() {
                             reason.push_str(t);
                         }
@@ -658,5 +663,10 @@ fn accumulate_sse_gemini(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
     }
 
     let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
+    let act = match fn_call_blocks.len() {
+        0 => None,
+        1 => fn_call_blocks.into_iter().next(),
+        _ => Some(Value::Array(fn_call_blocks)),
+    };
     (reason, think, act)
 }
