@@ -7,14 +7,16 @@ use axum::{
     Router,
     body::Body,
     extract::State,
-    http::{HeaderMap, HeaderName, HeaderValue, Request, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::Response,
     routing::post,
 };
 use bytes::Bytes;
+use futures_util::StreamExt as _;
 use ledger::SessionLedger;
 use serde_json::Value;
 use std::{path::PathBuf, str::FromStr, sync::Arc};
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info};
 
 const SESSION_HEADER: &str = "x-harness-session";
@@ -107,39 +109,76 @@ async fn openai_handler(
         .unwrap_or("unknown")
         .to_string();
 
-    let res_bytes = forward(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER])
+    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER])
         .await
         .map_err(|e| { error!("upstream error: {e}"); StatusCode::BAD_GATEWAY })?;
 
-    let (reason, think, act) = extract_openai(&res_bytes);
+    let is_sse = upstream.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.contains("text/event-stream"))
+        .unwrap_or(false);
 
-    // FAIL-CLOSED: ledger must succeed before response is released.
-    let entry = SessionLedger::append_entry(
-        &state.harness_root,
-        &sid,
-        &model,
-        &in_hash,
-        think.as_ref(),
-        &reason,
-        act.as_ref(),
-    )
-    .map_err(|e| { error!("ledger write failed €” withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
-
-    let mut res = Response::new(Body::from(res_bytes));
-    *res.status_mut() = StatusCode::OK;
-    res.headers_mut().insert(
-        HeaderName::from_str("x-harness-session").unwrap(),
-        HeaderValue::from_str(&sid).unwrap(),
-    );
-    res.headers_mut().insert(
-        HeaderName::from_str("x-harness-seq").unwrap(),
-        HeaderValue::from_str(&entry.seq.to_string()).unwrap(),
-    );
-    res.headers_mut().insert(
-        HeaderName::from_str("x-harness-prev").unwrap(),
-        HeaderValue::from_str(&entry.prev).unwrap(),
-    );
-    Ok(res)
+    if is_sse {
+        // Streaming path: tee chunks to client as they arrive, write ledger at stream end.
+        // Fail-closed guarantee weakened for streaming: chunks already forwarded before ledger write.
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, reqwest::Error>>(64);
+        let root = state.harness_root.clone();
+        let sid_task = sid.clone();
+        let model_task = model.clone();
+        let in_hash_task = in_hash.clone();
+        tokio::spawn(async move {
+            let mut stream = upstream.bytes_stream();
+            let mut buf: Vec<u8> = Vec::new();
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(chunk) => {
+                        buf.extend_from_slice(&chunk);
+                        if tx.send(Ok(chunk)).await.is_err() { break; }
+                    }
+                    Err(e) => { let _ = tx.send(Err(e)).await; break; }
+                }
+            }
+            let (reason, think, act) = accumulate_sse_openai(&buf);
+            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, think.as_ref(), &reason, act.as_ref()) {
+                Ok(entry) => info!("stream ledger: sid={} seq={}", sid_task, entry.seq),
+                Err(e) => error!("stream ledger write failed — stream unrecorded: {e}"),
+            }
+        });
+        let mut res = Response::new(Body::from_stream(ReceiverStream::new(rx)));
+        *res.status_mut() = StatusCode::OK;
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-session").unwrap(),
+            HeaderValue::from_str(&sid).unwrap(),
+        );
+        Ok(res)
+    } else {
+        // Buffered path: fail-closed guarantee intact.
+        let res_bytes = upstream.bytes()
+            .await
+            .map_err(|e| { error!("upstream read error: {e}"); StatusCode::BAD_GATEWAY })?;
+        let (reason, think, act) = extract_openai(&res_bytes);
+        let entry = SessionLedger::append_entry(
+            &state.harness_root, &sid, &model, &in_hash,
+            think.as_ref(), &reason, act.as_ref(),
+        )
+        .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
+        let mut res = Response::new(Body::from(res_bytes));
+        *res.status_mut() = StatusCode::OK;
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-session").unwrap(),
+            HeaderValue::from_str(&sid).unwrap(),
+        );
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-seq").unwrap(),
+            HeaderValue::from_str(&entry.seq.to_string()).unwrap(),
+        );
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-prev").unwrap(),
+            HeaderValue::from_str(&entry.prev).unwrap(),
+        );
+        Ok(res)
+    }
 }
 
 /// Anthropic-compatible handler.
@@ -182,44 +221,81 @@ async fn anthropic_handler(
         .unwrap_or("unknown")
         .to_string();
 
-    let res_bytes = forward(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER])
+    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER])
         .await
         .map_err(|e| { error!("upstream error: {e}"); StatusCode::BAD_GATEWAY })?;
 
-    let (reason, think, act) = extract_anthropic(&res_bytes);
+    let is_sse = upstream.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.contains("text/event-stream"))
+        .unwrap_or(false);
 
-    let entry = SessionLedger::append_entry(
-        &state.harness_root,
-        &sid,
-        &model,
-        &in_hash,
-        think.as_ref(),
-        &reason,
-        act.as_ref(),
-    )
-    .map_err(|e| { error!("ledger write failed €” withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
-
-    let mut res = Response::new(Body::from(res_bytes));
-    *res.status_mut() = StatusCode::OK;
-    res.headers_mut().insert(
-        HeaderName::from_str("x-harness-session").unwrap(),
-        HeaderValue::from_str(&sid).unwrap(),
-    );
-    res.headers_mut().insert(
-        HeaderName::from_str("x-harness-seq").unwrap(),
-        HeaderValue::from_str(&entry.seq.to_string()).unwrap(),
-    );
-    Ok(res)
+    if is_sse {
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, reqwest::Error>>(64);
+        let root = state.harness_root.clone();
+        let sid_task = sid.clone();
+        let model_task = model.clone();
+        let in_hash_task = in_hash.clone();
+        tokio::spawn(async move {
+            let mut stream = upstream.bytes_stream();
+            let mut buf: Vec<u8> = Vec::new();
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(chunk) => {
+                        buf.extend_from_slice(&chunk);
+                        if tx.send(Ok(chunk)).await.is_err() { break; }
+                    }
+                    Err(e) => { let _ = tx.send(Err(e)).await; break; }
+                }
+            }
+            let (reason, think, act) = accumulate_sse_anthropic(&buf);
+            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, think.as_ref(), &reason, act.as_ref()) {
+                Ok(entry) => info!("stream ledger: sid={} seq={}", sid_task, entry.seq),
+                Err(e) => error!("stream ledger write failed — stream unrecorded: {e}"),
+            }
+        });
+        let mut res = Response::new(Body::from_stream(ReceiverStream::new(rx)));
+        *res.status_mut() = StatusCode::OK;
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-session").unwrap(),
+            HeaderValue::from_str(&sid).unwrap(),
+        );
+        Ok(res)
+    } else {
+        let res_bytes = upstream.bytes()
+            .await
+            .map_err(|e| { error!("upstream read error: {e}"); StatusCode::BAD_GATEWAY })?;
+        let (reason, think, act) = extract_anthropic(&res_bytes);
+        let entry = SessionLedger::append_entry(
+            &state.harness_root, &sid, &model, &in_hash,
+            think.as_ref(), &reason, act.as_ref(),
+        )
+        .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
+        let mut res = Response::new(Body::from(res_bytes));
+        *res.status_mut() = StatusCode::OK;
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-session").unwrap(),
+            HeaderValue::from_str(&sid).unwrap(),
+        );
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-seq").unwrap(),
+            HeaderValue::from_str(&entry.seq.to_string()).unwrap(),
+        );
+        Ok(res)
+    }
 }
 
 /// Forward request to upstream, stripping harness-specific headers.
-async fn forward(
+/// Returns the raw reqwest::Response so the caller can inspect headers
+/// before deciding whether to buffer or stream the body.
+async fn send_upstream(
     client: &reqwest::Client,
     url: &str,
     headers: &HeaderMap,
     body: Bytes,
     strip: &[&str],
-) -> Result<Bytes> {
+) -> Result<reqwest::Response> {
     let mut req = client.post(url).body(body);
     for (k, v) in headers.iter() {
         let name = k.as_str().to_lowercase();
@@ -228,8 +304,7 @@ async fn forward(
         }
         req = req.header(k.as_str(), v.as_bytes());
     }
-    let res = req.send().await?;
-    Ok(res.bytes().await?)
+    Ok(req.send().await?)
 }
 
 fn extract_openai(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
@@ -264,5 +339,83 @@ fn extract_anthropic(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
         }
     }
     let think = if think_blocks.is_empty() { None } else { Some(Value::Array(think_blocks)) };
+    (reason, think, act)
+}
+
+/// Accumulate reasoning/text/tool content from an OpenAI SSE stream buffer.
+/// Tool call input arrives as JSON delta fragments across multiple events;
+/// we capture the presence marker but not the full reconstructed input —
+/// documented ceiling for this iteration.
+fn accumulate_sse_openai(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
+    let text = std::str::from_utf8(buf).unwrap_or("");
+    let mut reason = String::new();
+    let mut thinking = String::new();
+    let mut has_tool_calls = false;
+
+    for line in text.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            if data.trim() == "[DONE]" {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<Value>(data) {
+                let delta = &v["choices"][0]["delta"];
+                if let Some(c) = delta["content"].as_str() {
+                    reason.push_str(c);
+                }
+                // Grok-style streaming reasoning_content
+                if let Some(r) = delta["reasoning_content"].as_str() {
+                    thinking.push_str(r);
+                }
+                if !delta["tool_calls"].is_null() {
+                    has_tool_calls = true;
+                }
+            }
+        }
+    }
+
+    let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
+    // For streaming tool calls, record presence only — full reconstruction is future work
+    let act = if has_tool_calls { Some(Value::String("[tool_calls — see raw stream]".into())) } else { None };
+    (reason, think, act)
+}
+
+/// Accumulate reasoning/text/tool content from an Anthropic SSE stream buffer.
+fn accumulate_sse_anthropic(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
+    let text = std::str::from_utf8(buf).unwrap_or("");
+    let mut reason = String::new();
+    let mut thinking = String::new();
+    let mut act: Option<Value> = None;
+
+    for line in text.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            if let Ok(v) = serde_json::from_str::<Value>(data) {
+                match v["type"].as_str() {
+                    Some("content_block_delta") => {
+                        match v["delta"]["type"].as_str() {
+                            Some("text_delta") => {
+                                if let Some(t) = v["delta"]["text"].as_str() {
+                                    reason.push_str(t);
+                                }
+                            }
+                            Some("thinking_delta") => {
+                                if let Some(t) = v["delta"]["thinking"].as_str() {
+                                    thinking.push_str(t);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    Some("content_block_start") => {
+                        if v["content_block"]["type"].as_str() == Some("tool_use") {
+                            act = Some(v["content_block"].clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
     (reason, think, act)
 }
