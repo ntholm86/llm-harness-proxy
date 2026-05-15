@@ -368,3 +368,42 @@ Vision confirmed: "capture everything verbatim — text, tool calls, thinking bl
 1. **Add `transparency` metadata field per entry** — a small JSON object `{"think": bool, "act": bool}` derived from whether `think`/`act` are non-null. Gives ai-steward a fast signal without parsing the full content. One-iteration change, no schema redesign.
 2. **Add Gemini support** — new route `/v1beta/models/*/generateContent`, extract `candidates[0].content.parts[]` with `thought` type blocks. Extends provider coverage to a third family.
 3. **Streaming architecture** — tee design: forward chunks to client as they arrive, accumulate buffer, write ledger at stream close. Larger change; prerequisite for real-world use with any client that sends `stream: true`.
+
+---
+## [2026-05-15] Improve: streaming tee architecture
+
+**Target:** `proxy-rust/src/main.rs`, `proxy-rust/Cargo.toml`
+**Commit:** `78fbc11`
+
+**[ASK]** Improve skill — decide the highest-leverage next move and implement it.
+
+**[INTERPRETATION]** Vision names streaming as a prerequisite for real use. Without it every real-world LLM client sending `stream: true` gets a broken response. All the extraction work (think field, Anthropic thinking blocks, Grok reasoning_content) is unreachable without this. One logical unit even though it touches several functions.
+
+**[EXAMINATION — pre-change state]**
+- `forward()` called `res.bytes().await?`, buffering the entire response before returning.
+- Any SSE response received by the proxy was held silently then released as a single blob.
+- Streaming clients received nothing until the full model output finished — breaking the SSE contract entirely.
+
+**[PRE-COMMIT PREDICTION]**
+- `send_upstream()` will return `reqwest::Response`; downstream callers branch on Content-Type.
+- Streaming branch: mpsc channel tee, spawned accumulation task, ledger written at stream close.
+- Buffered branch: unchanged fail-closed semantics.
+- SSE parse: `accumulate_sse_openai` and `accumulate_sse_anthropic` correctly accumulate deltas.
+- Fail-closed guarantee: weakened for streaming (documented ceiling), intact for buffered.
+
+**[ACTION]**
+- `Cargo.toml`: added `tokio-stream = "0.1"`, `futures-util = "0.3"`
+- `main.rs`: refactored `forward` → `send_upstream` (returns `reqwest::Response`)
+- Added `accumulate_sse_openai` and `accumulate_sse_anthropic`
+- Both handlers: detect `text/event-stream` Content-Type → streaming branch; else buffered branch
+- Streaming branch: `tokio::sync::mpsc::channel`, `ReceiverStream`, `Body::from_stream`; spawned task accumulates buffer, writes ledger after stream closes
+- Streaming tool call reconstruction: presence marker only, full delta reassembly is future work
+
+**[REFLECTION]**
+Prediction held. Architecture is clean — the two paths are clearly separated in each handler. The fail-closed ceiling under streaming is honest and documented both in code and here. One important gap surfaced: streaming tool call inputs arrive as fragmented `input_json_delta` events across many SSE packets; reconstructing the full JSON requires a stateful per-block accumulator that wasn't worth the complexity in this iteration — the presence marker is honest about what we captured.
+
+**[CANDIDATE NEXT MOVES — ranked]**
+1. `streaming tool call reconstruction` — complete the act field under streaming; needed for agentic workflows
+2. `Gemini support` — third provider family; route + extract + accumulate_sse functions
+3. `transparency` metadata field — `{"think": bool, "act": bool}` per ledger entry for ai-steward scoring
+4. `SPEC.md update` — document streaming ceiling, new schema fields, provider notes
