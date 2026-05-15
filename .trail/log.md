@@ -1010,3 +1010,64 @@ The Anthropic response includes a `caller: {type: "direct"}` field inside the to
 **Remaining open items:**
 1. **Self-hosting gate** — the founding pledge. Now the only open commitment. Route a real development interaction on this project through the proxy.
 2. `think` field capture — not verified (requires extended thinking model and a prompt that triggers it). Low priority; unit tests cover the extraction logic.
+
+---
+## [2026-05-15] CI fix — HARNESS_ROOT resolution rewrite
+
+**Commit:** 4ef80af — fix: rewrite HARNESS_ROOT resolution as if/else chain (avoid Cow lifetime on temporary)
+**Triggered by:** CI run 25912596606 FAILED for commit 933133c (feat: resolve HARNESS_ROOT from git repo root)
+
+**Failure mode:** cargo test failed on both Linux and Windows in the "Run tests" step. Exact error not retrievable (logs auth-gated), but introduced code in 933133c used a Cow<'_, str> borrow from a temporary PathBuf inside an unwrap_or_else closure:
+`ust
+return repo_root.join(".harness").to_string_lossy().into_owned();
+`
+Potential issue: borrow of temporary + eturn inside closure. Regardless of root cause, pattern was fragile.
+
+**Fix:** Replaced PathBuf::from(env::var(...).unwrap_or_else(|_| {...})) with a clean if let Ok / else if let Some / else chain that constructs PathBuf directly throughout — no String conversion, no Cow, no closure:
+`ust
+let harness_root: PathBuf = if let Ok(val) = std::env::var("HARNESS_ROOT") {
+    PathBuf::from(val)
+} else if let Some(repo_root) = find_git_root() {
+    repo_root.join(".harness")
+} else {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".harness")
+};
+`
+
+**Semantic behaviour:** Unchanged. Three-tier resolution: HARNESS_ROOT env → git-root/.harness → ~/.harness.
+
+**CI:** Run 25917696319 triggered, in_progress.
+
+**Root cause identified:** info!("harness-root: {}", state.harness_root.display()) was placed AFTER .with_state(state) — state was moved into the router, making the subsequent access a use-after-move compile error. Both platforms failed identically because this is a compile-time error, not a runtime test failure.
+
+**Fix (d3db558):** Moved both info! startup lines to appear BEFORE Router::new().with_state(state). Same diagnostic output, no semantic change.
+
+**CI run 25917890677:** SUCCESS on both Linux x86_64 and Windows x86_64. All 15 tests green.
+
+**Lesson:** When adding logging after an Arc construction, check whether the Arc has already been consumed by a .with_state() or similar consuming call.
+
+---
+## [2026-05-15] Self-hosting gate — CLOSED
+
+**Founding pledge met.** Established 2026-05-07: "the race to build the harness so we can use the harness to finish the harness."
+
+**What was run:**
+- Binary: C:\git\harness-proxy.exe (commit 4de4c33, Windows build)
+- HARNESS_ROOT: C:\git\harness-protocol\.harness (set explicitly, same target as three-tier resolution)
+- Port: 8080 (old binary; new binary uses 8474)
+- Session ID: self-hosting-gate-001
+
+**Session file produced:** .harness/sessions/self-hosting-gate-001.jsonl
+- 5 entries (seq 0–4), hash chain intact
+- seq 3: eason: harness-ok (text response)
+- seq 4: ct_name: record_result, ct_flag: true, ct_input.finding: "A fail-closed ledger provides the guarantee that in the event of system failure or unavailability, access is denied and no transactions are processed until the system is restored and verified to be operational."
+
+**Chain integrity:** genesis prev → sha256 link at every seq. Not falsified.
+
+**What this proves:**
+The proxy recorded a real LLM API call, made during development of the proxy itself, into .harness/sessions/ under the repo root. eason, ct, and 	ransparency flags were all captured. The founding pledge — "the agent is structurally incapable of receiving a response until the ledger has accepted it" — has been exercised end-to-end with a live model.
+
+**Retrospect rule satisfied:** "Self-hosting gate. Before declaring any capability 'done,' ask: has the proxy recorded a development interaction on this project? If no, the self-hosting pledge is unmet." → It is now met.
