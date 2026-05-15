@@ -559,3 +559,56 @@ The new risk: **the loop is iterating on visible features while the core guarant
 2. SPEC §12 conformance tests — integrity layer test coverage; prerequisite to trusting any behavioural claim
 3. Streaming tool call reconstruction — most avoided item; needed for agentic workflow capture
 4. Self-hosting enactment — credibility test, not a feature; one captured dev session would satisfy the founding pledge
+
+---
+## [2026-05-15] Improve: streaming tool call reconstruction
+
+**Target:** `proxy-rust/src/main.rs`
+**Commit:** `1975dd7`
+
+**[ASK]** Improve skill — continue. Remember to trail everything.
+
+**[INTERPRETATION]** The retrospect run that immediately preceded this session named streaming tool call reconstruction as "avoidance, not deferral" — having ranked as a top candidate in three consecutive iterations without implementation. The improve skill picks the single highest-leverage change. Continuing to route around this item after the retrospect explicitly named the pattern would be a direct violation of the retrospect's operational rules. This is the iteration where it stops being deferred.
+
+**[EXAMINATION]**
+
+*Purpose lens:* Vision: "capture everything verbatim." The `act` field for streaming paths was a lie:
+- OpenAI streaming: `act = Some(Value::String("[tool_calls — see raw stream]"))` — a placeholder, not content.
+- Anthropic streaming: `act = Some(v["content_block"].clone())` where `input` was always `{}` (empty object) — `input_json_delta` events were silently discarded.
+
+Both paths claimed the tool call happened but captured none of its arguments. For agentic workflows (the primary Observable Autonomy use case), this meant the ledger recorded "an action occurred" without recording what the action was. That is not "capture everything verbatim."
+
+*Inconsistency lens:* Buffered paths both capture full content (OpenAI: `tool_calls` array verbatim; Anthropic: `tool_use` block). Streaming paths did not match buffered path fidelity. The proxy's guarantee should be path-independent.
+
+*Challenge to first read:* Is there a simpler version of this that avoids the HashMap? No. The SSE protocol for both providers intentionally fragments tool call data across multiple events. A stateful accumulator is the minimum required structure.
+
+**[PRE-COMMIT PREDICTION]**
+- OpenAI streaming: `act` will be a `Value::Array` of `{id, type, function: {name, arguments}}` objects where `arguments` is parsed JSON (fallback to raw string). Matches buffered OpenAI path schema.
+- Anthropic streaming: `act` will contain fully populated `tool_use` block(s) with `input` parsed from accumulated `input_json_delta` fragments. Single block → `Value::Object`; multiple → `Value::Array`.
+- No regression to `reason`, `think`, or hash chain — only `act` derivation path changes.
+- Compilation: CI gate (local toolchain blocked). Logic verified by code review.
+
+**[ACTION]**
+- `use std::{collections::HashMap, ...}` added to imports
+- `accumulate_sse_openai`: replaced `has_tool_calls: bool` presence flag with `HashMap<usize, (String, String, String)>` keyed by `tool_calls[*].index`. Accumulates `id` (first event), `name` (first event), `arguments` string (every event). At stream end: sort by index, parse accumulated args as JSON, produce `Value::Array`.
+- `accumulate_sse_anthropic`: replaced single-block overwrite with `HashMap<usize, (Value, String)>` keyed by content block index. `content_block_start` registers the block; `input_json_delta` appends `partial_json` to the accumulated string; at stream end each block's `input` is set to the parsed JSON.
+
+**[REFLECTION]**
+Prediction held (logic review). The avoidance pattern was real: the `HashMap` implementation is 30 lines per function — not complex. It was never "too hard to do." It was perpetually ranked behind items that felt more concrete (new provider, new field, new spec section). The retrospect's naming of the pattern ("avoidance, not deferral") was the forcing function.
+
+`[!REALIZATION]` The buffered Anthropic extractor (`extract_anthropic`) still overwrites `act` in a loop — if a response has multiple `tool_use` blocks, only the last is captured. This is the buffered equivalent of the streaming gap that was just fixed. It is out of scope for this iteration but is now visible as a known inconsistency. The streaming path now captures all blocks; the buffered path captures only one.
+
+*Blind spot:* The reconstructed `arguments` in OpenAI streaming are parsed as JSON and stored as a Value. If the upstream sends malformed JSON (partial fragments not fully assembled — which could happen if the stream is cut mid-response), `parse_fail` falls through to `Value::String(raw_args)`. This is correct but untested under adversarial conditions. The local build blocker prevents running the proxy against a live stream to verify the accumulation in practice.
+
+*Imagined reader pushback:* "You fixed streaming tool calls but the Anthropic buffered path still only captures one. The ledger's fidelity is now higher for streaming than for non-streaming in the multi-tool case." True. The inconsistency is noted above. The fix is a one-line change in `extract_anthropic` (change `act = Some(block.clone())` to accumulate into a Vec). Left for the next iteration because the improve skill targets one change per run.
+
+*Trigger evaluation (across-trail):*
+- *Recurring finding-class:* not fired — this was the sole deferred item being resolved, not a new pattern emerging.
+- *About to declare silence:* not fired.
+- *Contradicts prior `[!REALIZATION]`:* not fired.
+- *Operator explicitly asked:* not fired.
+
+**[CANDIDATE NEXT MOVES — ranked]**
+1. `Fix buffered Anthropic multi-tool capture` — one-line change in `extract_anthropic`; closes the streaming/buffered consistency gap noted above; small and targeted.
+2. `End-to-end proxy verification` — run the proxy with the real binary against a live LLM client; directly tests the core claim; the May 8 binary works, or push to CI for the current build.
+3. `SPEC §12 conformance tests` — write the Rust unit tests for ledger.rs round-trip, tamper detection, crash recovery; integrity layer has no test coverage.
