@@ -6,7 +6,7 @@ use anyhow::Result;
 use axum::{
     Router,
     body::Body,
-    extract::State,
+    extract::{OriginalUri, Path as PathParam, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::Response,
     routing::post,
@@ -27,6 +27,7 @@ struct AppState {
     harness_root: PathBuf,
     upstream_base: String,
     anthropic_base: String,
+    gemini_base: String,
     client: reqwest::Client,
 }
 
@@ -49,6 +50,10 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "https://api.anthropic.com".to_string())
         .trim_end_matches('/')
         .to_string();
+    let gemini_base = std::env::var("GEMINI_BASE_URL")
+        .unwrap_or_else(|_| "https://generativelanguage.googleapis.com".to_string())
+        .trim_end_matches('/')
+        .to_string();
 
     let listen = std::env::var("HARNESS_LISTEN")
         .unwrap_or_else(|_| "127.0.0.1:8080".to_string());
@@ -62,12 +67,14 @@ async fn main() -> Result<()> {
         harness_root,
         upstream_base,
         anthropic_base,
+        gemini_base,
         client,
     });
 
     let app = Router::new()
         .route("/v1/chat/completions", post(openai_handler))
         .route("/v1/messages", post(anthropic_handler))
+        .route("/v1beta/models/*model", post(gemini_handler))
         .with_state(state);
 
     info!("harness-proxy listening on {}", listen);
@@ -415,6 +422,171 @@ fn accumulate_sse_anthropic(buf: &[u8]) -> (String, Option<Value>, Option<Value>
                         }
                     }
                     _ => {}
+                }
+            }
+        }
+    }
+
+    let think = if thinking.is_empty() { None } else { Some(Value::String(thinking)) };
+    (reason, think, act)
+}
+
+/// Gemini-compatible handler. Route: /v1beta/models/*model
+/// Covers both :generateContent (buffered) and :streamGenerateContent (SSE).
+/// Query string (e.g. ?alt=sse) is forwarded verbatim via OriginalUri.
+async fn gemini_handler(
+    State(state): State<Arc<AppState>>,
+    PathParam(model_path): PathParam<String>,
+    OriginalUri(original_uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response<Body>, StatusCode> {
+    let payload: Value = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let sid = headers
+        .get(SESSION_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
+        .unwrap_or_else(ulid::new_ulid);
+
+    // Gemini uses systemInstruction for system prompt; contents for messages.
+    let system_str;
+    let system = match payload.get("systemInstruction") {
+        Some(v) => { system_str = v.to_string(); Some(system_str.as_str()) }
+        None => None,
+    };
+    let in_hash = ledger::hash_input(
+        system,
+        payload.get("contents"),
+        payload.get("tools"),
+    );
+
+    // Forward full path + query string so ?alt=sse reaches the Gemini endpoint.
+    let upstream_url = format!(
+        "{}{}",
+        state.gemini_base,
+        original_uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
+    );
+    // Strip method suffix for clean model name in the ledger.
+    let model = model_path
+        .trim_end_matches(":streamGenerateContent")
+        .trim_end_matches(":generateContent")
+        .to_string();
+
+    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER])
+        .await
+        .map_err(|e| { error!("upstream error: {e}"); StatusCode::BAD_GATEWAY })?;
+
+    let is_sse = upstream.headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.contains("text/event-stream"))
+        .unwrap_or(false);
+
+    if is_sse {
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, reqwest::Error>>(64);
+        let root = state.harness_root.clone();
+        let sid_task = sid.clone();
+        let model_task = model.clone();
+        let in_hash_task = in_hash.clone();
+        tokio::spawn(async move {
+            let mut stream = upstream.bytes_stream();
+            let mut buf: Vec<u8> = Vec::new();
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(chunk) => {
+                        buf.extend_from_slice(&chunk);
+                        if tx.send(Ok(chunk)).await.is_err() { break; }
+                    }
+                    Err(e) => { let _ = tx.send(Err(e)).await; break; }
+                }
+            }
+            let (reason, think, act) = accumulate_sse_gemini(&buf);
+            let has_think = think.is_some();
+            let has_act = act.is_some();
+            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
+                Ok(entry) => info!("stream ledger: sid={} seq={}", sid_task, entry.seq),
+                Err(e) => error!("stream ledger write failed — stream unrecorded: {e}"),
+            }
+        });
+        let mut res = Response::new(Body::from_stream(ReceiverStream::new(rx)));
+        *res.status_mut() = StatusCode::OK;
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-session").unwrap(),
+            HeaderValue::from_str(&sid).unwrap(),
+        );
+        Ok(res)
+    } else {
+        let res_bytes = upstream.bytes()
+            .await
+            .map_err(|e| { error!("upstream read error: {e}"); StatusCode::BAD_GATEWAY })?;
+        let (reason, think, act) = extract_gemini(&res_bytes);
+        let entry = SessionLedger::append_entry(
+            &state.harness_root, &sid, &model, &in_hash,
+            think.is_some(), think.as_ref(), act.is_some(), act.as_ref(), &reason,
+        )
+        .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
+        let mut res = Response::new(Body::from(res_bytes));
+        *res.status_mut() = StatusCode::OK;
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-session").unwrap(),
+            HeaderValue::from_str(&sid).unwrap(),
+        );
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-seq").unwrap(),
+            HeaderValue::from_str(&entry.seq.to_string()).unwrap(),
+        );
+        res.headers_mut().insert(
+            HeaderName::from_str("x-harness-prev").unwrap(),
+            HeaderValue::from_str(&entry.prev).unwrap(),
+        );
+        Ok(res)
+    }
+}
+
+fn extract_gemini(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
+    let Ok(v) = serde_json::from_slice::<Value>(bytes) else { return (String::new(), None, None) };
+    let mut reason = String::new();
+    let mut think_blocks: Vec<Value> = Vec::new();
+    let mut act: Option<Value> = None;
+    if let Some(parts) = v["candidates"][0]["content"]["parts"].as_array() {
+        for part in parts {
+            if part["thought"].as_bool() == Some(true) {
+                think_blocks.push(part.clone());
+            } else if let Some(fc) = part.get("functionCall").filter(|v| !v.is_null()) {
+                act = Some(fc.clone());
+            } else if let Some(t) = part["text"].as_str() {
+                reason.push_str(t);
+            }
+        }
+    }
+    let think = if think_blocks.is_empty() { None } else { Some(Value::Array(think_blocks)) };
+    (reason, think, act)
+}
+
+/// Accumulate from Gemini SSE stream. Each data: line is a complete
+/// GenerateContentResponse chunk — accumulate parts across all chunks.
+fn accumulate_sse_gemini(buf: &[u8]) -> (String, Option<Value>, Option<Value>) {
+    let text = std::str::from_utf8(buf).unwrap_or("");
+    let mut reason = String::new();
+    let mut thinking = String::new();
+    let mut act: Option<Value> = None;
+
+    for line in text.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            if let Ok(v) = serde_json::from_str::<Value>(data) {
+                if let Some(parts) = v["candidates"][0]["content"]["parts"].as_array() {
+                    for part in parts {
+                        if part["thought"].as_bool() == Some(true) {
+                            if let Some(t) = part["text"].as_str() {
+                                thinking.push_str(t);
+                            }
+                        } else if let Some(fc) = part.get("functionCall").filter(|v| !v.is_null()) {
+                            act = Some(fc.clone());
+                        } else if let Some(t) = part["text"].as_str() {
+                            reason.push_str(t);
+                        }
+                    }
                 }
             }
         }
