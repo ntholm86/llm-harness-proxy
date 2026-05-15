@@ -481,3 +481,43 @@ Prediction held. The wildcard route is the right approach for Gemini's unusual U
 1. `SPEC.md update` — the spec is now behind on schema (think, transparency), provider coverage (Gemini), and streaming ceiling. This is technical debt that grows with every feature.
 2. `streaming tool call reconstruction` — stateful `input_json_delta` accumulator for OpenAI/Anthropic streaming; needed for agentic workflows
 3. `Gemini streaming verification` — empirically test whether Gemini returns `text/event-stream` for `:streamGenerateContent?alt=sse`; the current detection may need a fallback for NDJSON format
+
+---
+## [2026-05-15] Improve: SPEC.md brought current
+
+**Target:** `SPEC.md`
+**Commit:** `8176fc6`
+
+**[ASK]** Improve skill — continue.
+
+**[INTERPRETATION]** Three consecutive feature iterations left the spec untouched. The spec now actively misrepresents the proxy: wrong env vars, missing fields, missing providers, wrong section numbers. A wrong contract document is worse than none — it misleads adopters and violates the zero-friction adoption goal in vision.
+
+**[EXAMINATION — pre-change state]**
+- §4 subsections labeled §3.x (wrong). §7 subsections labeled §9.x (wrong). §8 subsections labeled §9.x (wrong).
+- `cont` field cross-referenced "See §10" — §10 is Versioning, not continuations (should be §7).
+- Optional fields table missing `think` and `transparency` — both written by proxy since commits 147551f and 7da4805.
+- §9 Write semantics had no streaming ceiling section — §9.5 did not exist.
+- §15.1 listed `HARNESS_UPSTREAM` (never existed) instead of `UPSTREAM_BASE_URL`; only one env var documented of five; no routes table; no provider coverage; no Gemini.
+
+**[PRE-COMMIT PREDICTION]**
+- All section numbering bugs fixed without changing section semantics.
+- `think` and `transparency` fields documented in §4.3 with provider-specific notes.
+- §9.5 added with honest ceiling statement: SSE mode weakens fail-closed; non-streaming unchanged.
+- §15.1 now has routes table, full env var table, provider coverage, streaming note.
+- No functional changes to any code — documentation only.
+
+**[ACTION]**
+- 16 targeted replacements in SPEC.md via multi_replace_string_in_file
+- §4.1-4.4 (was §3.x), §7.1-7.4 (was §9.x), §8.1-8.5 (was §9.x) heading numbering fixed
+- §4.3: added think (array|null) and transparency (object) to optional fields table
+- §4.4: fixed cross-reference §10.3 → §7.3
+- §9.5 new: streaming ceiling — SSE tee, fail-closed weakened, non-streaming intact, MUST log on stream-end write failure
+- §15.1: routes table, corrected env vars, provider coverage, streaming note
+
+**[REFLECTION]**
+Prediction held. The most important finding during examination: the spec had been structurally wrong for multiple sections simultaneously — numbering, env vars, and fields — suggesting it was written in a burst and then left static while the implementation evolved. This is a known maintenance failure pattern. The spec should be treated as a first-class artifact and updated alongside every feature commit, not in periodic catch-up sessions. `[!REALIZATION]` The gap between spec and code, if left unresolved, makes the proxy unusable for third parties — they read the spec first, configure per the spec, and fail. This directly contradicts the zero-friction adoption goal in vision.
+
+**[CANDIDATE NEXT MOVES — ranked]**
+1. `streaming tool call reconstruction` — stateful delta accumulator for OpenAI/Anthropic streaming tool calls; needed for agentic workflows; last deferred item from the original candidate list
+2. `Gemini streaming format verification` — empirically confirm whether Gemini returns text/event-stream for streamGenerateContent; possible NDJSON fallback needed
+3. `test suite` — SPEC §12 conformance tests (round-trip, tamper detection, crash recovery) are documented but no test files exist; CI gate is currently zero
