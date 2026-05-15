@@ -97,14 +97,14 @@ async fn main() -> Result<()> {
         client,
     });
 
+    info!("harness-proxy listening on {}", listen);
+    info!("harness-root: {}", state.harness_root.display());
+
     let app = Router::new()
         .route("/v1/chat/completions", post(openai_handler))
         .route("/v1/messages", post(anthropic_handler))
         .route("/v1beta/models/*model", post(gemini_handler))
         .with_state(state);
-
-    info!("harness-proxy listening on {}", listen);
-    info!("harness-root: {}", state.harness_root.display());
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     axum::serve(listener, app).await?;
     Ok(())
