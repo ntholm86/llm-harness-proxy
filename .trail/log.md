@@ -705,3 +705,38 @@ Prediction held. 7 lines changed. The fix pattern is now symmetric with `think_b
 1. `extract_gemini` buffered multi-function-call capture — same last-wins bug as the Anthropic extractor just fixed; small, safe, and completes the cross-provider consistency sweep
 2. Torn line recovery write fix — return clean-end offset from `scan_tail`, truncate before recovery write; small change to `ledger.rs` while the test harness is fresh
 3. End-to-end proxy verification — oldest open commitment; requires pushing commits to origin (CI builds binary), then downloading artifact and running against a real API key
+
+---
+## [2026-05-15] Torn line recovery write fix — scan_tail tracks clean_end, append_entry truncates
+
+**Target:** `proxy-rust/src/ledger.rs`
+**Commit:** `b2293d5`
+
+**Interpret:** `extract_gemini` was ranked #1 in the last trail entry but is a capture-layer fix. Retrospect operational rule says integrity layer first. The torn line recovery write gap was named as a `[!REALIZATION]` in the prior iteration while the test harness was fresh — this is the natural follow-on.
+
+**Pre-commit prediction:** All 5 tests (existing 4 + new `torn_line_full_recovery`) compile and pass on CI. `torn_line_full_recovery` would have failed on prior code. No change to any handler or public API surface.
+
+**Examine:** `scan_tail` used `reader.lines()` which discards byte counts. It correctly computed `(seq, prev)` on torn lines but could not tell the caller *where* the torn fragment started. `append_entry` wrote the recovery entry at EOF (append mode), concatenating it with the torn bytes on the same line — making the recovery entry unreadable on next scan.
+
+**Fix:**
+- `scan_tail`: switched from `reader.lines()` to `reader.read_line()`, accumulating `clean_end: u64` on each valid line. Returns `(u64, String, Option<u64>)` — the third element is `Some(clean_end)` when a torn line is detected.
+- `append_entry`: destructures the 3-tuple; if `torn_offset.is_some()`, calls `file.set_len(offset)` to truncate the file to the last clean byte before the recovery write.
+- Tests: updated `scan_tail_stops_at_torn_line` (drop KNOWN GAP comment, add `torn_offset.is_some()` assertion); added `torn_line_full_recovery` (end-to-end: torn write → recovery via `append_entry` → 2 clean readable chain-linked entries).
+
+**[!REALIZATION]** The fail-closed guarantee was never compromised by the torn line gap (a crash mid-write means the response was never released). But auditability was: the recovery entry was silently lost. The fix makes auditability as strong as fail-closed — the recovery entry is now preserved and chain-linked. These two properties should be considered together, not separately.
+
+**Reflect:**
+- *Current model:* The integrity layer is now structurally complete for the single-writer case: genesis, hash chain, tamper detection, and crash recovery are all tested. What remains untested is concurrent access (two simultaneous `append_entry` calls for the same `sid`) — the OS `O_APPEND` guarantee is relied upon without a test.
+- *Blind spot:* `file.set_len()` behavior with append-mode files on Windows (`FILE_APPEND_DATA`) was not empirically verified — it was reasoned from documentation. CI will be the first real test.
+- *Pushback:* A reader familiar with Windows file semantics might note that `FILE_APPEND_DATA` and `SetEndOfFile` interact via the write position pointer in ways that differ from POSIX `ftruncate`. If this fails on Windows CI, the fix is to reopen the file without append mode for the truncation.
+
+**Across-trail reflection:**
+- *Recurring finding-class:* FIRED — three consecutive iterations (§12 tests, torn scan, torn write) have all been integrity-layer work. The loop is now executing the `Integrity layer before capture layer` rule structurally, not just naming it. The arc has shifted from extraction/capture to integrity. Record this: the integrity layer is now covered for the single-writer case.
+- *About to declare silence:* not fired — change made
+- *Contradicts prior [!REALIZATION]:* not fired
+- *Operator explicitly asked:* not fired
+
+**Candidate Next Moves:**
+1. `extract_gemini` buffered multi-function-call capture — same last-wins bug as the Anthropic extractor; small, completes the cross-provider capture consistency sweep; integrity layer single-writer coverage is now done
+2. End-to-end proxy verification — push to origin, CI builds binary, download artifact, run against real API key; oldest open commitment
+3. Concurrent-write test — two goroutine-style threads calling `append_entry` with the same `sid`; exercises OS `O_APPEND` guarantee; small addition to the test module
