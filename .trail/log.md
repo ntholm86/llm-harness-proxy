@@ -907,3 +907,43 @@ The 5 iterations formed two consecutive sweeps:
 1. **Wait for CI run #10 and verify green** — run #10 is the first run with `cargo test`; if green: 16 tests pass, binary built, artifact downloadable; if red: diagnose and fix. This is the next gate before any other work.
 2. **Download artifact and run end-to-end** — after CI is green: download `harness-proxy-windows` artifact, set `HARNESS_ROOT` + upstream URL, make a real API call, verify `.harness/sessions/*.jsonl` captures the full schema (`think`, `transparency`, `act`) — the first test with the current SPEC-compliant binary
 3. **Handle untracked session files** — the 15 `.harness/sessions/*.jsonl` files from May 7-8 are evidence of prior proxy operation with an older schema; either commit them as historical record or add to `.gitignore`
+
+---
+## [2026-05-15] Fix: torn-line truncation fails on Windows (Access is denied)
+
+**Commit:** 4de4c33
+**File:** proxy-rust/src/ledger.rs
+
+**CI finding:** Run #10 — 14/15 tests pass. `torn_line_full_recovery` panicked:
+`truncate torn entry failed: Access is denied. (os error 5)`
+
+**Root cause:** `append_entry` opens the file with `.append(true)` which on Windows grants `FILE_APPEND_DATA` access only. `set_len()` calls `SetEndOfFile`, which requires `FILE_WRITE_DATA` (not granted by `FILE_APPEND_DATA`). This is a Windows-specific permission split that does not exist on POSIX — on Linux, `O_APPEND` + `ftruncate` work fine on the same fd. The bug was invisible without actually running the test on Windows.
+
+**[!REVERSAL]** The prior assumption "tests are correct, they just haven't been run" was wrong for this test. The test logic was correct, but the production code had a real Windows-specific defect that only CI (running on `windows-latest`) could surface.
+
+**Fix:** Open a second file handle with `.write(true)` solely for the `set_len` call, then immediately drop it. The original `.append(true)` handle continues to be used for the write below, preserving the `FILE_APPEND_DATA` atomic-write semantics for the entry itself.
+
+Also removed two unused imports flagged as warnings in the same run:
+- `use crate::{jcs, ulid}` → `use crate::jcs` (`ulid` not used in ledger.rs; sid is a parameter)
+- `use anyhow::{Context, Result, bail}` → `use anyhow::{Context, Result}` (`bail` not used)
+
+**Pre-commit prediction:** All 15 tests pass on CI run #11. The fix is surgical — only the truncation call changes; append semantics and the rest of the flow are unchanged.
+
+**Reflection:**
+
+*Current model of target:* The proxy is now at the boundary where "works in theory" becomes "works on the target platform." The Windows `FILE_APPEND_DATA` / `FILE_WRITE_DATA` split is a real constraint that POSIX doesn't impose. The test suite is the mechanism that found this — exactly as designed. The tear-test is the most operationally important test in the suite.
+
+*Blind spot:* The two-handle approach (append handle + write handle open simultaneously) has not been tested under concurrent write conditions. If two processes both try to recover the same torn file simultaneously, the second `set_len` call could corrupt the first process's write. This is outside the current single-writer SPEC scope but worth noting.
+
+*Adversarial reader:* "Why not just open with `.write(true).read(true)` from the start and do a manual seek to end before each write?" Because `.append(true)` provides an atomic OS-level guarantee that `.write(true)` + `seek(End)` does not on Windows or Linux. Giving up that guarantee would require a file lock to be safe.
+
+**Macro reflection triggers:**
+- *Recurring finding-class:* not fired
+- *About to declare silence:* not fired — made a change
+- *Contradicts prior [!REALIZATION]:* not fired — the [!REVERSAL] above is new
+- *Operator explicitly asked:* not fired
+
+**Candidate Next Moves:**
+1. **Confirm CI run #11 passes (all 15 tests green, binary built)** — this is the immediate gate; everything else is blocked until we see green
+2. **Download `harness-proxy-windows` artifact and run end-to-end** — after green CI: point proxy at a real API, verify `.harness/sessions/*.jsonl` with the current SPEC schema (`think`, `transparency`, `act`)
+3. **Handle untracked session files** — the 15 `.harness/sessions/*.jsonl` from May 7-8 are untracked; commit or `.gitignore` them
