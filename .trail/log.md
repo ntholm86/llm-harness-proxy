@@ -859,3 +859,51 @@ The 5 iterations formed two consecutive sweeps:
 1. **End-to-end gate** — push unpushed commits (local master at `b0d9029`, origin/master at `228742c`) to origin, wait for CI build, download artifact, run against real API key. The existing pre-fix sessions falsify Claim 3 technically, but the current SPEC-compliant schema has never been exercised end-to-end. This is the primary operational rule.
 2. **`ulid.rs` tests** — the one remaining untested module; a ULID uniqueness test and format-regex test would close the last gap in the unit-test layer. Small, additive, symmetric with the JCS work just done.
 3. **Commit the untracked `.harness/sessions/` files** — 15 session files exist untracked from the prior arc. They are historical evidence of proxy operation. Committing them (or explicitly `.gitignore`-ing them) makes the evidence visible and removes noise from `git status`.
+
+---
+## [2026-05-15] End-to-end gate: push to origin + CI test coverage
+
+**Commits:** 8a143c9 (ci: run cargo test before release build), 1fd6852 (test: ULID format, uniqueness, monotonicity)
+**Also done in this iteration:** pushed all 12 local commits to origin (228742c → 1fd6852); origin/master now matches local master.
+
+**Interpretation:** "Continue" with the improve skill. Retrospect operational rule fired: *"Name avoidance when it happens. If the blocker is 'requires pushing to origin,' then pushing to origin is the iteration."* End-to-end gate has appeared as Candidate #1 in every trail entry since 2026-05-08. Surfaced the blocker explicitly (push requires user confirmation); received confirmation; pushed.
+
+**Examination during push:**
+
+*CI workflow gap:* Inspecting `.github/workflows/build-proxy.yml` revealed that both Windows and Linux jobs run `cargo build --release` but **never** `cargo test`. The 13 unit tests added in the JCS and ledger iterations (commits `c36798b`, `b2293d5`, `b0d9029`) are compiled but never executed. Writing tests and not running them closes the wrong gap.
+
+*Trigger path gap:* After adding `cargo test` to the CI workflow (commit `8a143c9`), that commit alone would NOT trigger CI because the workflow `paths` filter is `proxy-rust/**` and the workflow file lives in `.github/workflows/`. A change to `proxy-rust/**` was needed to activate the updated workflow.
+
+**Actions taken:**
+1. `git push origin master` — pushed 12 local commits, CI run #9 queued immediately
+2. Added `cargo test --verbose` step to both Windows and Linux jobs in `build-proxy.yml` (before the release build step) — commit `8a143c9`
+3. Added `ulid.rs` unit tests (3 tests: format, uniqueness over 200 calls, monotonicity) — commit `1fd6852` — this touches `proxy-rust/src/ulid.rs` and triggers CI with the updated workflow
+4. Pushed `8a143c9..1fd6852` — CI run #10 triggered, will run `cargo test` for first time
+
+**`ulid.rs` tests written:**
+- `ulid_is_26_chars_of_crockford_base32` — format and alphabet check
+- `ulids_are_unique_across_rapid_calls` — 200 calls, HashSet dedup check
+- `ulids_are_lexicographically_monotone_with_time` — timestamp component non-decreasing
+
+**CI status at trail time:** Run #9 queued (no `cargo test`); run #10 expected to appear shortly (with `cargo test`). Run #8 (commit `228742c`) completed successfully — last known-good build.
+
+**Pre-commit prediction:** All 16 tests (5 ledger + 8 JCS + 3 ULID) pass on CI. The existing sessions and working proxy binary prove the underlying code is sound. The ULID uniqueness test could theoretically flake under extreme conditions (200 rapid calls, same millisecond, same random bits) but the probability is negligible with a 80-bit random component.
+
+**Reflection:**
+
+*Current model of target:* The proxy's unit-test layer is now complete across all three modules (ledger, jcs, ulid). CI now enforces tests on every push. The remaining gap is runtime verification: running the current binary against a live LLM and inspecting the resulting `.harness/sessions/*.jsonl` chain.
+
+*Blind spot:* CI run #10 has not yet reported. If any of the 16 tests fail (compilation error, logic error, test assumption wrong), this iteration will need a follow-up fix. The tests have not been run on any machine — they've been written by code review and reasoning only.
+
+*Adversarial reader:* "The `ulid_is_26_chars_of_crockford_base32` test only checks that each character is a valid Crockford byte — it doesn't verify the 48-bit timestamp layout or that the random bits occupy the right positions." Fair. A deeper structural test would decode the ULID and verify the timestamp matches `SystemTime::now()` to within a tolerance. Not added because it would require a time mock.
+
+**Macro reflection triggers:**
+- *Recurring finding-class:* not fired — push was a one-off structural unblock, not a class pattern
+- *About to declare silence:* not fired — made multiple changes
+- *Contradicts prior [!REALIZATION]:* not fired — new findings extend, not contradict
+- *Operator explicitly asked:* not fired
+
+**Candidate Next Moves:**
+1. **Wait for CI run #10 and verify green** — run #10 is the first run with `cargo test`; if green: 16 tests pass, binary built, artifact downloadable; if red: diagnose and fix. This is the next gate before any other work.
+2. **Download artifact and run end-to-end** — after CI is green: download `harness-proxy-windows` artifact, set `HARNESS_ROOT` + upstream URL, make a real API call, verify `.harness/sessions/*.jsonl` captures the full schema (`think`, `transparency`, `act`) — the first test with the current SPEC-compliant binary
+3. **Handle untracked session files** — the 15 `.harness/sessions/*.jsonl` files from May 7-8 are evidence of prior proxy operation with an older schema; either commit them as historical record or add to `.gitignore`
