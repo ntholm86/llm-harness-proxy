@@ -338,18 +338,23 @@ fn extract_anthropic(bytes: &[u8]) -> (String, Option<Value>, Option<Value>) {
     let Ok(v) = serde_json::from_slice::<Value>(bytes) else { return (String::new(), None, None) };
     let mut reason = String::new();
     let mut think_blocks: Vec<Value> = Vec::new();
-    let mut act = None;
+    let mut tool_use_blocks: Vec<Value> = Vec::new();
     if let Some(content) = v["content"].as_array() {
         for block in content {
             match block["type"].as_str() {
                 Some("text") => { reason = block["text"].as_str().unwrap_or("").to_string(); }
                 Some("thinking") => { think_blocks.push(block.clone()); }
-                Some("tool_use") => { act = Some(block.clone()); }
+                Some("tool_use") => { tool_use_blocks.push(block.clone()); }
                 _ => {}
             }
         }
     }
     let think = if think_blocks.is_empty() { None } else { Some(Value::Array(think_blocks)) };
+    let act = match tool_use_blocks.len() {
+        0 => None,
+        1 => tool_use_blocks.into_iter().next(),
+        _ => Some(Value::Array(tool_use_blocks)),
+    };
     (reason, think, act)
 }
 
