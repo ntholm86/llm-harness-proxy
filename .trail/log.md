@@ -771,3 +771,43 @@ Prediction held. 7 lines changed. The fix pattern is now symmetric with `think_b
 1. End-to-end proxy verification — oldest open commitment; push to origin, CI builds binary, download artifact, run against real API key; the extraction and integrity layers are now complete and this is the first action that actually demonstrates what vision promises
 2. Retrospect run — five iterations since the last retrospect (`2a7a379`); the arc has shifted substantially (integrity layer coverage, capture consistency sweep, torn-line fix); a fresh retrospect would update the current-location reading and produce new operational rules
 3. Concurrent-write test for ledger — exercises OS `O_APPEND` guarantee; small addition to the test module; the integrity layer's one remaining untested property
+
+---
+## [2026-05-15] Retrospect: post-integrity-and-capture-sweep arc read
+
+**Target:** harness-protocol (full arc, 5 iterations since commit `2a7a379`)
+**Scope:** Five iterations since the prior retrospect have closed two class-level correctness gaps (last-wins extraction, torn-line write) and built a unit test suite for the integrity layer. Read the arc to update operational rules and produce a new current-location statement.
+
+**Freshness check:** No `tools/record.py` in this repo; no `history.md` / `learning.md` derived artifacts. Gate: PASS — arc-claims drawn directly from `log.md`.
+
+**Arc read summary:**
+
+The 5 iterations formed two consecutive sweeps:
+- *Capture sweep (2 iterations):* last-wins bug closed across 5 locations — OpenAI streaming, Anthropic streaming, Anthropic buffered, Gemini buffered + streaming.
+- *Integrity sweep (3 iterations):* SPEC §12 tests (5 unit tests covering genesis, chain, tamper, torn-scan, torn-recovery), torn-line recovery write fix (`scan_tail` returns clean-end offset; `append_entry` truncates).
+
+**Claims resolved since prior retrospect:**
+- Claim 5 (streaming tool call deferred): CLOSED — commit `1975dd7`
+- Claim 6 (integrity layer never tested): PARTIALLY CLOSED — 5 unit tests; no runtime test
+- Claim 8 (faithfulness without integrity verification): SUBSTANTIALLY CLOSED
+
+**New arc-claims (6 total — see retrospect.md):**
+1. Extraction layer faithful across all providers + paths — last-wins class closed
+2. Integrity layer covered for single-writer case — 5 unit tests, torn-line fixed
+3. Proxy never invoked against real LLM API — end-to-end is the only remaining gap
+4. Self-hosting pledge has been open the entire arc — structural avoidance, not technical
+5. Operational rules were followed effectively — "integrity before capture" overrode trail ranking twice and succeeded
+6. Both correctness gaps were invisible without tests — strongest arc evidence for "write tests first"
+
+**[!REALIZATION]** The end-to-end test is now in the same position that "streaming tool call reconstruction" was before the prior retrospect: it has appeared as a top-ranked candidate in every trail entry since 2026-05-08 without being done, and the reason is structural (deployment mode required) not technical. The same naming mechanism that forced the streaming fix should force the end-to-end test: if the next iteration is not end-to-end, name the concrete blocker — not "ranked #1, not done."
+
+**Operational rules updated:**
+- RETIRED: "Integrity layer before capture layer" — the purpose has been served; single-writer coverage complete
+- NEW (primary): "End-to-end gate" — extraction and integrity layers are complete; no further feature additions before end-to-end verification
+- Carried forward: "Spec updates with every feature commit," "Name avoidance when it happens," "Self-hosting gate"
+- NEW: "Single-writer integrity is complete — do not revisit without a concrete new finding"
+
+**Candidate Next Moves:**
+1. End-to-end proxy verification — push unpushed commits (`master` at `828e4d2`, `origin/master` at `10906a6`), wait for CI build, download artifact, run against real API key; this is the iteration that demonstrates what vision promises
+2. Concurrent-write test — the one remaining SPEC §12 single-process unit test gap; small, additive
+3. Self-hosting enactment — after end-to-end: point proxy at a real development session on this project

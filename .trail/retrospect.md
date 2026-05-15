@@ -1,6 +1,58 @@
 # retrospect.md — harness-protocol
 
-_Last updated: 2026-05-15 (run: post-phase-one-feature-sprint)_
+_Last updated: 2026-05-15 (run: post-integrity-and-capture-sweep)_
+
+## Current claims
+
+**1. The extraction layer is structurally faithful across all three provider families and both execution paths.**
+The last-wins bug class — where multiple tool/function calls in one response resulted in only the last being captured — appeared in 5 locations and was closed in 4 consecutive commits: OpenAI streaming (`1975dd7`), Anthropic streaming (`1975dd7`), Anthropic buffered (`cbdb37e`), Gemini buffered + streaming (`9ebe469`). `think`, `reason`, and `act` are now consistently captured across all paths for all three providers. A future run can falsify this by finding a provider or path where multi-tool or multi-block output still uses last-wins assignment.
+
+**2. The integrity layer is covered for the single-writer case.**
+Five unit tests exist in `ledger.rs` (commits `c36798b`, `b2293d5`): genesis, hash chain round-trip, tamper detection, torn-line scan, torn-line full recovery. The torn-line recovery write gap was a real bug — fixed: `scan_tail` now returns the clean-end byte offset; `append_entry` truncates before writing. A future run can falsify this by finding a SPEC §12 conformance class with no test. Three remain uncovered: concurrent write, continuation gating, cross-process sequence.
+
+**3. The proxy has never been invoked against a real LLM API.**
+Not once in the entire arc. Every claim — fail-closed write, chain integrity, streaming tee, extraction faithfulness — has been verified by code review and unit tests only. Vision's core sentence ("the agent is structurally incapable of receiving a response until the ledger has accepted it") has not been tested end-to-end. The extraction and integrity layers are now complete. The end-to-end gap is the only substantive remaining gap between the code and the claim. A future run can falsify this by showing a committed record of a real LLM API call processed by the proxy with a verified `.harness/sessions/*.jsonl` chain.
+
+**4. The self-hosting pledge has been open for the entire arc — longer than any feature.**
+Established 2026-05-07. It predates the extension deletion, the Rust rebuild, all prior improve iterations. Its continued deferral has made it invisible: it appears in every trail entry's ranked candidates list and has never risen to the top. This is structural avoidance — the item requires deployment (push to origin, CI build, API key) rather than coding, and the loop has consistently preferred coding-mode work. A future run can falsify this by showing a `.harness/sessions/*.jsonl` file produced by a real development interaction on this project.
+
+**5. The loop used retrospect-derived operational rules effectively in this phase.**
+The "Integrity layer before capture layer" rule was invoked explicitly in two iterations to override the trail entry's own top-ranked candidate, deferring the `extract_gemini` fix until integrity tests existed. The mechanism worked: the rule was stated, followed, and the integrity work was completed. This is evidence that the operational rules are being read and applied, not just written.
+
+**6. Both main correctness gaps were silent failures present since initial implementation (2026-05-08).**
+The last-wins bug and the torn-line recovery write were both invisible without tests. Both were fixed within a 5-iteration sweep that only happened because tests were written first. This is the strongest arc-level evidence for the "integrity layer before capture layer" principle: without tests, code review through a remote CI gate misses both semantic correctness (last-wins) and crash-recovery correctness (torn-line write).
+
+---
+
+## What the next runs should test
+
+**1. End-to-end proxy verification — the only remaining gap between the code and the claim.**
+Push unpushed commits to origin (`master` at `828e4d2`, `origin/master` at `10906a6` — all post-retrospect commits are local only), wait for CI to build the binary, download the artifact, run with `HARNESS_ROOT` and the relevant `*_BASE_URL` set, make a real API call, verify the `.harness/sessions/*.jsonl` file exists, chain integrity holds, and content matches. This is not a code change — it is a deployment and verification action. The end-to-end gap is the only substantive remaining gap. It must precede any further feature development.
+
+**2. Concurrent-write test for the ledger.**
+Two threads calling `append_entry` with the same `sid` simultaneously. The OS `O_APPEND` guarantee is relied upon but not tested. This is the one remaining SPEC §12 unit-test gap for the single-process case. Small, safe, additive — a natural extension of the current test module.
+
+**3. Self-hosting enactment.**
+After end-to-end verification: point the proxy at a real development session on harness-protocol itself. One captured `.harness/sessions/*.jsonl` from a development interaction satisfies the founding pledge. This is the credibility test the whole arc has been building toward.
+
+---
+
+## Active operational rules
+
+- **End-to-end gate (primary, replaces "Integrity layer before capture layer").** The extraction and integrity layers are complete for the single-writer case. Before any further feature addition (new provider, new ledger field, new capture path), establish that the proxy works end-to-end with a real client. Pushing to origin to trigger a CI build counts as the first step of this iteration, not a separate prerequisite.
+- **Single-writer integrity is complete. Do not revisit without a new finding.** Five unit tests cover the single-writer case. A new integrity iteration requires a concrete new finding (concurrent write bug, platform-specific fsync failure, CI red on the torn-line tests) — not general coverage anxiety.
+- **Spec updates belong with every feature commit.** (Carried forward — the SPEC.md catch-up was a 3-iteration debt.)
+- **Name avoidance when it happens.** End-to-end verification has appeared as a top-ranked candidate in every trail entry since 2026-05-08. If it is deferred again, name the concrete blocker explicitly. If the blocker is "requires pushing to origin," then pushing to origin is the iteration.
+- **Self-hosting gate.** Before declaring any capability "done," ask: has the proxy recorded a development interaction on this project? If no, the self-hosting pledge is unmet.
+
+---
+
+## Loop-effectiveness notes
+
+The "Integrity layer before capture layer" rule from the prior retrospect was followed precisely, even when it overrode the trail's own ranked candidates. The operational rules mechanism works when the rules are specific and enforceable. The new primary rule ("End-to-end gate") is equally specific.
+
+The end-to-end test has been deferred since 2026-05-08. The pattern is identical to "streaming tool call reconstruction" avoidance named in the prior retrospect — which was resolved in the next iteration after being explicitly named as avoidance. The same mechanism should apply here. If the next iteration is not end-to-end verification, the trail entry must name the concrete blocker, not just rerank the candidates.
+
 
 ## Current claims
 
