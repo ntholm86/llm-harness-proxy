@@ -1,6 +1,67 @@
 # retrospect.md — harness-protocol
 
-_Last updated: 2026-05-15 (run: post-integrity-and-capture-sweep)_
+_Last updated: 2026-05-15 (run: post-self-hosting-gate)_
+
+## Current claims
+
+**1. The founding pledge is now fully met.**
+Session `self-hosting-gate-001.jsonl` — 5 entries, hash chain intact, `reason`/`act`/`transparency` all captured — was produced during a live development interaction on harness-protocol itself. The arc's first goal ("the race to build the harness so we can use the harness to finish the harness," established 2026-05-07) is closed. A future run can falsify this by finding that the session file is malformed, the hash chain breaks on verification, or the file was committed outside `.harness/sessions/`.
+
+**2. The proxy's implementation is structurally complete for the single-writer, synchronous-use case.**
+Three providers (OpenAI/Grok, Anthropic, Gemini), full extraction (reason/think/act/transparency), integrity layer tested (5 ledger tests + 8 JCS tests + 3 ULID tests), CI green on both Windows x86_64 and Linux x86_64. The torn-line write fix is verified on Windows (CI caught the platform-specific `FILE_APPEND_DATA` / `SetEndOfFile` split). A future run can falsify this by finding a provider path, extraction function, or integrity scenario where the proxy produces incorrect or missing output.
+
+**3. The `think` field has never been verified end-to-end with a real model.**
+The extraction functions (`extract_anthropic`, `accumulate_sse_anthropic`) correctly identify and capture thinking blocks — verified by code review and the `think` field being present in every ledger entry. But no session file in the arc contains a non-null `think` value from an actual model response. The extended thinking path (`thinking: {type: "enabled", ...}`) has not been exercised at runtime. A future run can falsify this by producing a session file with `think` non-null and `transparency.think: true`.
+
+**4. The new binary has never been run locally.**
+Commit `d3db558` — port 8474, `find_git_root()` HARNESS_ROOT auto-resolution — passed CI (run 25917890677, 15/15 tests). But the self-hosting gate was closed using the old binary (`4de4c33`, port 8080, explicit `HARNESS_ROOT`). The new binary exists only as a CI artifact. The git-root HARNESS_ROOT resolution has never been exercised. A future run can falsify this by running the new binary from `C:\git\harness-protocol` with no `HARNESS_ROOT` set and observing the session file appear at `.harness/sessions/`.
+
+**5. The concurrent-write integrity case is the only remaining uncovered SPEC §12 test class.**
+The single-writer case is fully covered (genesis, hash chain, tamper detection, torn-scan, torn-recovery). Two threads or processes calling `append_entry` with the same `sid` simultaneously are untested. OS `O_APPEND` semantics provide the guarantee in theory; no test exercises it. A future run can falsify this by adding a concurrent-write test that passes on both Linux and Windows CI.
+
+**6. The ambient recording destination in vision has never appeared as a candidate next move in the arc.**
+Vision (`vision.md`, 2026-05-08 update) names `vscode.lm.registerLanguageModelChatProvider` as the "real destination" — silent always-on recording of every Copilot interaction with zero user action. This path requires a new VS Code extension (the concept deleted twice from this repo), a different interception mechanism, and Copilot subscription routing. It has not appeared in any trail entry's candidate list. The loop has treated "proxy works end-to-end" as convergence, but the vision destination is "ambient recording with zero user action." These are not the same goal. A future run can falsify this claim by producing a trail entry that either scopes the ambient recording path or explicitly narrows vision to exclude it.
+
+**7. The CI use-after-move failure confirms that CI is the compile gate for this codebase.**
+Commit `933133c` introduced a use-after-move compile error (`state` consumed by `.with_state()`, then accessed for logging). This was caught only by CI — two local reasoning passes (`4ef80af` and the original `933133c`) both missed it because the local MSVC linker is absent and `cargo check` cannot run. The pattern: MSVC toolchain absent locally → CI is the only Rust compilation gate → errors that compile-fail are invisible until pushed. A future run can falsify this by setting up a local Rust MSVC or cross-compilation environment.
+
+---
+
+## What the next runs should test
+
+**1. Download and run the new binary — verify git-root HARNESS_ROOT resolution.**
+The CI artifact from run 25917890677 (`harness-proxy.exe`, commit `d3db558`) should replace the old binary at `C:\git\harness-proxy.exe`. Run it from `C:\git\harness-protocol` with no `HARNESS_ROOT` env var set and make one API call. The session file should appear at `C:\git\harness-protocol\.harness\sessions\`. This is a 15-minute deployment task, not a code change.
+
+**2. Verify `think` field end-to-end.**
+Call with `thinking: {type: "enabled", budget_tokens: 1024}` through the proxy and verify a non-null `think` field in the resulting `.jsonl` entry. This is the one extraction path that has no runtime evidence. A single captured thinking block closes this gap.
+
+**3. Concurrent-write test for the ledger.**
+Two threads calling `append_entry` with the same `sid` simultaneously. Exercises the OS `O_APPEND` guarantee. Small, additive, the single remaining uncovered SPEC §12 case. Both Windows and Linux CI paths would exercise their respective filesystem atomicity guarantees.
+
+**4. Resolve the ambient recording gap — scope or deprioritize explicitly.**
+Vision names `vscode.lm.registerLanguageModelChatProvider` as the destination. The loop has never attempted it. This requires an explicit decision: either (a) scope the ambient recording work, or (b) narrow vision to exclude it and state why (maintenance burden, VS Code coupling, etc.). The silence is not a decision — it is structural avoidance of the hardest remaining item in vision.
+
+---
+
+## Active operational rules
+
+- **Self-hosting gate is CLOSED.** Do not invoke it as a deferral. The gate served its purpose. The new question is: what does production use reveal?
+- **Download the new binary before the next dev session.** The old binary (port 8080, no git-root resolution) should be replaced by the CI-built artifact from run 25917890677.
+- **`think` field requires runtime verification before claiming capture is complete.** The extended thinking path has no end-to-end evidence.
+- **Spec updates belong with every feature commit.** Carried forward — the SPEC.md catch-up iteration remains a cautionary example.
+- **Name avoidance when it happens.** The ambient recording path in vision has never appeared as a candidate next move. This is either deliberate scope narrowing (acceptable) or avoidance (not acceptable). Name which.
+- **CI is the compile gate — do not commit Rust changes without expecting a CI build to verify them.** Local MSVC linker is absent. `cargo check` cannot run. Use-after-move and similar compile errors are invisible locally.
+
+---
+
+## Loop-effectiveness notes
+
+The prior retrospect found the loop was iterating on visible features while the core guarantee remained untested. That finding has been substantially resolved: the integrity layer has 15 unit tests across three modules, the end-to-end gate has been closed, and the self-hosting gate — open since 2026-05-07 — was enacted today.
+
+The new risk is different: **the loop has closed all internal completeness gates but has not engaged with the vision destination.** The proxy is working. The founding pledge is met. The ambient recording path — which vision describes as the "real destination" — has never been touched. The loop has treated delivery of the proxy as convergence, but the arc has a further destination that has been invisible in every trail entry.
+
+This is not a failure — the proxy is genuinely useful and structurally sound. But the honest arc-read is: the proxy is a milestone, not the destination. The destination is ambient recording of every agent interaction with zero user friction. The proxy is the foundation that makes that destination technically reachable. Whether the loop moves toward that destination or formally narrows scope is the open question the next run should answer.
+
 
 ## Current claims
 
