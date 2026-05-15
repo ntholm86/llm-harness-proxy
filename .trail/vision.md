@@ -88,7 +88,50 @@ The harness has no knowledge of ai-steward or any other calling system. Any deve
 - "Tests for ledgerWriter.ts" — moot. No TypeScript ledger path remains.
 
 **What is still open — revised priority order:**
-1. Delete `extension/` folder from repo, update README.md and SPEC.md to remove extension references.
+1. Delete `extension/` folder from repo, update README.md and SPEC.md to remove extension references. ✓ Done 2026-05-15.
 2. **Streaming capture** — current proxy buffers full response body before writing one ledger entry. Next meaningful work: capture the full stream verbatim in order (prompt → tool call → tool result → reasoning chunk → reply chunk). This is what closes the faithfulness gap.
 3. SPEC.md section explicitly specifying thinking-token / reasoning-block capture as a required ledger field.
 4. End-to-end test: run proxy locally, point a real client at `http://127.0.0.1:8080`, verify `.harness/sessions/*.jsonl` chain integrity.
+
+---
+
+## [2026-05-15] Vision run — proxy scope confirmed, provider-aware capture, streaming prerequisite
+
+_Confirmed after examining proxy source and cross-referencing ai-steward vision._
+
+### What the harness is
+
+**Dumb pipe, provider-aware.** The harness captures everything that flows through a model interaction — text, tool calls, thinking blocks, reasoning traces — verbatim, in order. It makes zero decisions about what matters. It records everything.
+
+It is provider-aware but not provider-opinionated: it knows how Anthropic, OpenAI/GPT, Gemini, and Grok structure their responses, so it can extract and label each content type correctly. This knowledge is purely structural — parsing, not judging.
+
+**Scoring stays in ai-steward.** The harness emits a `transparency` metadata field per entry (what was present: thinking tokens, tool calls, reasoning trace, etc.) but makes no judgment about whether that is good or bad. ai-steward reads the ledger and applies the scoring. The harness does not reason about its own captures.
+
+### The thinking-block gap is a current bug
+
+`extract_anthropic` currently discards `"type": "thinking"` blocks with `_ => {}`. This is the most valuable data the harness is supposed to capture, and it is being silently dropped today. Fix is immediate — add a `think` field to the ledger schema and extract thinking blocks from all four providers.
+
+### Streaming is a prerequisite for real use — with a documented ceiling
+
+The proxy currently buffers the entire response before forwarding. Any client using `"stream": true` gets a broken experience. Streaming support is required before the proxy can be used in actual workflows.
+
+**The fail-closed guarantee under streaming:** Strict fail-closed (withhold response if ledger write fails) is only achievable in buffered mode. Under streaming, the harness tees the stream — forwarding chunks to the client as they arrive while accumulating a buffer — and writes the ledger entry when the stream closes. If the final ledger write fails, the response has already been delivered chunk by chunk. This weakens the guarantee from "response withheld" to "stream flagged as unrecorded." This is an honest ceiling, not a design failure. It will be documented explicitly in SPEC.md.
+
+**Provider transparency ceiling:** Not all model families expose the same internal state. Where thinking tokens or reasoning traces are unavailable, the harness documents what is absent rather than silently omitting it. The `transparency` field in each ledger entry records what was available, so the ceiling is visible per call.
+
+### Provider scope
+
+Four providers to support, in priority order:
+1. **Anthropic** — `content[]` blocks: `text`, `tool_use`, `thinking` (extended thinking). Currently: `thinking` discarded.
+2. **OpenAI/GPT** — `choices[0].message`: `content` (text), `tool_calls`. Reasoning tokens (o-series): available as a count in `usage.completion_tokens_details.reasoning_tokens`, not as content. Ceiling: reasoning content not exposed by OpenAI API.
+3. **Gemini** — `candidates[0].content.parts[]`: `text`, `functionCall`, `thought` (Gemini 2.0+ thinking mode). Route: `/v1beta/models/*/generateContent`.
+4. **Grok (xAI)** — OpenAI-compatible format. Route: `/v1/chat/completions` against `api.x.ai`. Grok 3 thinking: `reasoning_content` field alongside `content`.
+
+### What is open — current priority order
+1. **Ledger schema**: add `think` field for reasoning/thinking blocks; add `transparency` metadata object.
+2. **Fix Anthropic extraction**: capture `thinking` blocks into `think` field.
+3. **Fix OpenAI extraction**: capture reasoning token count; document content-not-exposed ceiling.
+4. **Add Gemini support**: new route + extraction for `thought` parts.
+5. **Add Grok support**: extend OpenAI handler or add dedicated route; extract `reasoning_content`.
+6. **Streaming**: tee architecture, write ledger at stream close, document weakened fail-closed guarantee.
+7. **SPEC.md**: update schema section (§4), add provider notes per family with ceiling documentation.

@@ -329,3 +329,42 @@ Current proxy buffers the full response body (`res_bytes`) before writing the le
 
 *Trigger evaluation:*
 - *Vision-level direction change:* YES — scope narrowed from proxy+viewer to proxy-only. Vision.md updated this session.
+
+---
+## [2026-05-15] Improve: add `think` field — capture Anthropic thinking blocks and Grok reasoning_content
+
+**Target:** `proxy-rust/src/main.rs`, `proxy-rust/src/ledger.rs`
+**Skill:** Improve (single highest-leverage change)
+
+**Orientation:**
+Vision confirmed: "capture everything verbatim — text, tool calls, thinking blocks, reasoning traces." Retrospect (stale, 2026-05-07) noted the loop built deeply but recorded shallowly. Both are consistent: the concrete bug was highest-priority.
+
+**Finding (Purpose lens):**
+`extract_anthropic` iterated `content[]` blocks and handled `text` and `tool_use`. `thinking` type blocks matched `_ => {}` — silently discarded. The proxy claimed to capture reasoning; it did not. No `think` field existed in the ledger schema, the entry format, or SPEC references. The gap was not a future feature — it was a correctness failure against the stated vision.
+
+**Pre-commit prediction:**
+- Anthropic responses with extended thinking will have `thinking` blocks captured verbatim in the `think` field as a JSON array.
+- Grok responses with `reasoning_content` will have it captured in `think`.
+- Standard GPT and OpenAI o-series: `think: null`. Ceiling documented in code comment — o-series exposes only a token count, not the reasoning content.
+- `reason` (text) and `act` (tool calls) unchanged.
+- Hash chain unaffected — `think` is part of every entry and hashed with it, whether null or not.
+
+**Change:**
+- `ledger.rs` `append_entry`: added `think: Option<&Value>` parameter (between `in_hash` and `reason`); added `"think": think` to the JSON entry.
+- `main.rs` `extract_openai`: return type changed to `(String, Option<Value>, Option<Value>)` — `(reason, think, act)`. Captures `choices[0].message.reasoning_content` for Grok.
+- `main.rs` `extract_anthropic`: return type changed to `(String, Option<Value>, Option<Value>)`. Collects all `thinking` blocks into a `Vec<Value>`; wraps as `Value::Array` if non-empty, `None` if empty.
+- Both handlers: destructure three-tuple; pass `think.as_ref()` to `append_entry`.
+
+**Verification:** `cargo check` fails locally (no `link.exe` — MSVC toolchain absent, documented limitation). Logic verified by code review: `Option<Value>.as_ref()` → `Option<&Value>` matches signature. CI (GitHub Actions) is the compile gate — commit `147551f`.
+
+**Prediction held / failed:** CI pending. Logic review: held.
+
+**Reflection:**
+- The `_ => {}` arm in `extract_anthropic` was the single most damaging line in the codebase relative to the stated mission. One match arm was silently invalidating the proxy's core claim.
+- The ceiling comment in `extract_openai` is now structurally visible in code — OpenAI's choice not to expose o-series reasoning content is documented at the extraction site, not buried in a vision document.
+- `scan_tail` still reads the whole file on every call to find seq+prev. Not a problem at current scale; at high session volume this becomes O(n) per append. Not touched — out of scope for this change.
+
+### Candidate Next Moves
+1. **Add `transparency` metadata field per entry** — a small JSON object `{"think": bool, "act": bool}` derived from whether `think`/`act` are non-null. Gives ai-steward a fast signal without parsing the full content. One-iteration change, no schema redesign.
+2. **Add Gemini support** — new route `/v1beta/models/*/generateContent`, extract `candidates[0].content.parts[]` with `thought` type blocks. Extends provider coverage to a third family.
+3. **Streaming architecture** — tee design: forward chunks to client as they arrive, accumulate buffer, write ledger at stream close. Larger change; prerequisite for real-world use with any client that sends `stream: true`.
