@@ -1,7 +1,7 @@
 /// Harness Protocol ledger writer — fail-closed, hash-chained JSONL.
 /// Implements SPEC S4, S5, S8, S9.1.
-use crate::{jcs, ulid};
-use anyhow::{Context, Result, bail};
+use crate::jcs;
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -70,7 +70,16 @@ impl SessionLedger {
         // recovery entry is not concatenated onto the torn fragment.
         let (seq, prev, torn_offset) = scan_tail(&mut file)?;
         if let Some(offset) = torn_offset {
-            file.set_len(offset).context("truncate torn entry failed")?;
+            // On Windows, .append(true) grants only FILE_APPEND_DATA, not
+            // FILE_WRITE_DATA — insufficient for SetEndOfFile (set_len).
+            // Open a second handle with write access solely for the truncation;
+            // the append handle remains valid for writing below.
+            OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .context("truncate reopen failed")?
+                .set_len(offset)
+                .context("truncate torn entry failed")?;
         }
 
         let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
