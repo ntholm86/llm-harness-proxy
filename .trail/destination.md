@@ -1,4 +1,4 @@
-﻿# Vision — harness-protocol
+# Destination — harness-protocol
 
 _Operator-held. Updated by Vision run 2026-05-19 (session: foundational-violation-surfaced)._
 
