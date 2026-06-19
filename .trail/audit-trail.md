@@ -101,3 +101,65 @@ The harness-protocol trail has been sparse. This is the second entry since the v
 1. **Cross-model probe run when additional API access is available.** The harness is ready; the runner supports any Anthropic/OpenAI model via env vars. Running the same 3 probes against a second model family would produce the first cross-model comparison.
 2. **Zenodo upload for manifesto v2.3.0.** Operator-scope — GitHub Release from the v2.3.0 tag triggers this.
 3. **Trail gap audit.** The HARNESS_DEFAULT_SESSION feature and self-hosting gate work are untrailed. Consider whether a reconstruction entry is warranted.
+
+## 2026-06-19 — AAT compliance mapping document created
+
+**Skill:** improve
+**Target:** harness-protocol (documentation layer)
+**Operator:** nils-holmager
+**Model:** Claude Opus 4.5 (Copilot)
+
+### Interpretation of the ask
+
+Operator asked for strategic positioning work after competitive landscape analysis against 9 autonomy-governance frameworks. The analysis identified three priorities:
+
+1. AAT compliance mapping (low effort, high interop value)
+2. AAS-1 assertion mapping (medium effort)
+3. Skills-suite deployment case study (medium effort)
+
+This session executes priority 1.
+
+### Decision
+
+[!DECISION] Create `docs/AAT-MAPPING.md` — a field-by-field mapping document showing how the Harness Protocol relates to the IETF Agent Audit Trail specification (draft-sharif-agent-audit-trail-00). This is documentation work, not protocol change.
+
+### Prediction
+
+The document will answer the question "how does your format relate to the IETF draft?" without requiring readers to cross-reference both specs. It will **not** make the harness AAT-compliant (that would require adding missing fields like `action_type`, `outcome`, `trust_level`); it documents the relationship as-is.
+
+### Action
+
+1. Read both specs (harness SPEC.md and draft-sharif-agent-audit-trail-00 via IETF datatracker)
+2. Created `docs/AAT-MAPPING.md` with:
+   - Field mapping tables (Harness → AAT and AAT → Harness)
+   - Structural mapping (session lifecycle, hash chain)
+   - Taxonomy gap analysis (harness `act` is untyped; AAT has `action_type` vocabulary)
+   - What harness adds beyond AAT (enforcement, streaming, full reasoning capture, MITM deployment)
+   - What harness omits from AAT (agent identity, action taxonomy, outcome, trust levels, signatures, tombstones)
+   - Conversion example
+   - Regulatory alignment table (EU AI Act, SOC 2, ISO 42001, PCI DSS)
+3. Updated README.md to link the new document under a Documentation section
+
+### Outcome vs prediction
+
+Prediction held. The document explains the relationship without claiming full compliance.
+
+### Reflection
+
+**Falsifiable model-claim:** The harness implements AAT's core cryptographic guarantees (hash chain via SHA-256 + JCS over RFC 8785) and differs primarily in scope (enforcement vs observation, reasoning capture vs reasoning hash, untyped actions vs taxonomy). A future AAT validator that checks only chain integrity would accept harness sessions with trivial field renaming (sid→session_id, seq addressing→record_id chain).
+
+**Named blind spot:** The conversion example in the document assumes `outcome: "success"` and `trust_level: "L1"` because the harness doesn't capture these. A real AAT export tool would need to either omit these fields (if AAT ever relaxes them to optional) or inject placeholders that don't reflect reality.
+
+**Imagined-reader pushback:** "You say harness aligns with AAT but it doesn't implement half the mandatory fields." Counter: the mapping document explicitly calls these out in the "What the Harness Omits from AAT" table. The claim is not compliance; it's that the core cryptographic primitive is identical and the gaps are documented.
+
+**Across-trail trigger evaluation:**
+- *Recurring finding-class:* not fired — first interop mapping in this trail
+- *About to declare silence:* not fired — substantive artifact created
+- *Contradicts prior [!REALIZATION]:* not fired — no prior realization about AAT relationship
+- *Operator explicitly asked:* FIRED — operator asked for strategic work after competitive analysis
+
+### Candidate Next Moves
+
+1. **AAS-1 assertion mapping** — map PEA's three principles to AAS-1's audit assertion vocabulary. Second priority from the competitive analysis.
+2. **Skills-suite deployment case study** — package the existing trail as an "incident narrative" for institutional credibility. Third priority.
+3. **Add `action_type` field to harness** — would increase AAT alignment but is a protocol change (v2 breaking). Deferred pending demand.

@@ -124,3 +124,10 @@ CI builds and uploads artifacts for Windows x86_64 and Linux x86_64 on every pus
 - **Dumb pipe.** The proxy does not interpret, filter, or modify content. It captures what the model sent and what the client sent.
 - **Zero client integration.** One `base_url` change. No SDK wrapping, no library import.
 - **Single binary.** No runtime, no daemon, no configuration file.
+
+---
+
+## Documentation
+
+- [SPEC.md](./SPEC.md) — Full protocol specification (entry format, hash chain, streaming, failure semantics)
+- [docs/AAT-MAPPING.md](./docs/AAT-MAPPING.md) — Field-by-field mapping to IETF Agent Audit Trail (draft-sharif-agent-audit-trail-00)
