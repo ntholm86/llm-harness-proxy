@@ -44,6 +44,10 @@ struct AppState {
     anthropic_base: String,
     gemini_base: String,
     client: reqwest::Client,
+    /// When HARNESS_DEFAULT_SESSION is set, all calls without an explicit
+    /// x-harness-session header append to this session file instead of
+    /// generating a fresh ULID. Unset = current one-call-one-file behaviour.
+    default_session: Option<String>,
 }
 
 #[tokio::main]
@@ -89,12 +93,18 @@ async fn main() -> Result<()> {
         .connection_verbose(false)
         .build()?;
 
+    let default_session = std::env::var("HARNESS_DEFAULT_SESSION").ok();
+    if let Some(ref sid) = default_session {
+        info!("harness-default-session: {}", sid);
+    }
+
     let state = Arc::new(AppState {
         harness_root,
         upstream_base,
         anthropic_base,
         gemini_base,
         client,
+        default_session,
     });
 
     info!("harness-proxy listening on {}", listen);
@@ -110,7 +120,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// OpenAI-compatible handler €” intercept, ledger, release (fail-closed).
+/// OpenAI-compatible handler — intercept, ledger, release (fail-closed).
 async fn openai_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -122,6 +132,7 @@ async fn openai_handler(
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned)
+        .or_else(|| state.default_session.clone())
         .unwrap_or_else(ulid::new_ulid);
 
     let in_hash = ledger::hash_input(
@@ -229,6 +240,7 @@ async fn anthropic_handler(
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned)
+        .or_else(|| state.default_session.clone())
         .unwrap_or_else(ulid::new_ulid);
 
     let system_str;
@@ -544,6 +556,7 @@ async fn gemini_handler(
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned)
+        .or_else(|| state.default_session.clone())
         .unwrap_or_else(ulid::new_ulid);
 
     // Gemini uses systemInstruction for system prompt; contents for messages.
