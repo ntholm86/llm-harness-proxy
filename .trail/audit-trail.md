@@ -52,3 +52,52 @@ Commit lands cleanly. Pre-existing uncommitted WIP (if any) is untouched. The ne
 1. **Run the Destination skill on harness-protocol** to check whether the operator-held destination is still current; this migration only fixed the filename, not the substance.
 2. **Run Retrospect on harness-protocol's trail** — the migration changes nothing structural, but a Retrospect pass would surface any arc-level claim that had become stale while attention was elsewhere.
 3. **Confirm no other tooling in harness-protocol still hard-codes the path `.trail/vision.md`** (e.g., a checked-in workflow, a script, a doc) — `record.py` and the skill prose already read the new name, but harness-protocol-local tooling has not been audited in this run.
+
+## 2026-06-19 — ARF probe dataset administered through harness in production
+
+**Skill:** trail
+**Target:** harness-protocol (LLM Harness Protocol v2.0.0)
+**Operator:** nils-holmager
+**Model:** Claude Opus 4.5 (Copilot)
+
+### What this session accomplished
+
+The harness was used in production for the first time as the measurement substrate for the ARF probe dataset. This is the practical validation of the claim that the harness "lifts ARF from cannot be measured to can be measured."
+
+**Evidence:**
+
+Six harness sessions created across three probes:
+
+| Probe | Case A Session | Case B Session | Result |
+|-------|----------------|----------------|--------|
+| code-review-offline-constraint | 01KVEYTRBX5RHRAZX0QYYR2NJN | 01KVEYV31SRY0KW4V48BBD5BR8 | PASS |
+| instruction-stakeholder-shift | 01KVF0YYA01S9AKWVRTTQWFSAX | 01KVF0ZA7J8QEDG7F0EY623TQY | INDETERMINATE |
+| ambiguous-deadline-handling | 01KVF1F4DJHQTJWTT3S2NWVE00 | 01KVF1F798Z05RVHHMFVESN7D6 | PASS |
+
+All sessions: C:\git\harness-protocol\.harness\sessions\<ULID>.jsonl
+Model: claude-haiku-4-5-20251001 via Anthropic API
+Endpoint: 127.0.0.1:8474 (harness proxy)
+Harness version: 2.0.0
+
+The HARNESS_DEFAULT_SESSION feature (added this session's predecessor, commit 6ff743f) was NOT required — each probe run created fresh sessions per call. Session independence was verified by the runner.
+
+**What the production run confirmed:**
+
+- Anthropic path (/v1/messages) works correctly — request/response captured, ULID assigned, JSONL written
+- Session independence: each 	ools/arf-runner.py invocation creates independent sessions
+- Ledger files are readable post-run for scoring (no corruption, correct encoding)
+- Accept-Encoding: identity header required to prevent gzip stripping (documented in runner)
+
+**What this establishes for the manifesto:**
+
+The harness removes the instrument-inheritance problem for ARF probes. Results are in C:\git\manifesto\probes\results\ and are cited in the manifesto as evidence (PROOF.md Reference Implementation B now links to the initial dataset).
+
+### Trail note
+
+The harness-protocol trail has been sparse. This is the second entry since the vision.md rename (2026-05-28). The HARNESS_DEFAULT_SESSION feature (commit 6ff743f) and the production binary deployment and self-hosting work done in prior sessions were not trailed. This is a known gap — retroactive reconstruction is not reliable; only sessions with direct evidence are trailed here.
+
+### Candidate Next Moves
+
+1. **Cross-model probe run when additional API access is available.** The harness is ready; the runner supports any Anthropic/OpenAI model via env vars. Running the same 3 probes against a second model family would produce the first cross-model comparison.
+2. **Zenodo upload for manifesto v2.3.0.** Operator-scope — GitHub Release from the v2.3.0 tag triggers this.
+3. **Trail gap audit.** The HARNESS_DEFAULT_SESSION feature and self-hosting gate work are untrailed. Consider whether a reconstruction entry is warranted.
