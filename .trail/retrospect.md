@@ -1,4 +1,4 @@
-# retrospect.md — harness-protocol
+﻿# retrospect.md — harness-protocol
 
 _Last updated: 2026-05-15 (run: post-self-hosting-gate)_
 
@@ -28,7 +28,7 @@ Commit `933133c` introduced a use-after-move compile error (`state` consumed by 
 ## What the next runs should test
 
 **1. Download and run the new binary — verify git-root HARNESS_ROOT resolution.**
-The CI artifact from run 25917890677 (`harness-proxy.exe`, commit `d3db558`) should replace the old binary at `C:\git\harness-proxy.exe`. Run it from `C:\git\harness-protocol` with no `HARNESS_ROOT` env var set and make one API call. The session file should appear at `C:\git\harness-protocol\.harness\sessions\`. This is a 15-minute deployment task, not a code change.
+The CI artifact from run 25917890677 (`llm-harness-proxy.exe`, commit `d3db558`) should replace the old binary at `C:\git\llm-harness-proxy.exe`. Run it from `C:\git\harness-protocol` with no `HARNESS_ROOT` env var set and make one API call. The session file should appear at `C:\git\harness-protocol\.harness\sessions\`. This is a 15-minute deployment task, not a code change.
 
 ~~**2. Verify `think` field end-to-end.**~~ **DONE 2026-05-15.** `think` non-null, correct shape, claim 3 falsified.
 
@@ -43,7 +43,7 @@ Vision names `vscode.lm.registerLanguageModelChatProvider` as the destination. T
 ## Active operational rules
 
 - **Self-hosting gate is CLOSED.** Do not invoke it as a deferral. The gate served its purpose. The new question is: what does production use reveal?
-- ~~**Download the new binary before the next dev session.**~~ **DONE 2026-05-15.** Old binary at `C:\git\harness-proxy.exe` deleted. New binary (port 8474, git-root resolution) running at `C:\git\harness-protocol\harness-proxy.exe`. Retrospect claim 4 falsified.
+- ~~**Download the new binary before the next dev session.**~~ **DONE 2026-05-15.** Old binary at `C:\git\llm-harness-proxy.exe` deleted. New binary (port 8474, git-root resolution) running at `C:\git\harness-protocol\llm-harness-proxy.exe`. Retrospect claim 4 falsified.
 - ~~**`think` field requires runtime verification before claiming capture is complete.**~~ **DONE 2026-05-15.** Session `01KRNZ2SSP1B612XB512D2GJ1N.jsonl` — `think` non-null, `transparency.think: true`, correct array shape. Claim 3 falsified.
 - **Spec updates belong with every feature commit.** Carried forward — the SPEC.md catch-up iteration remains a cautionary example.
 - ~~**Name avoidance when it happens.** The ambient recording path in vision has never appeared as a candidate next move.~~ **RESOLVED 2026-05-15.** Vision direction change closes this. Proxy-only scope is the explicit operator decision.

@@ -1,4 +1,4 @@
-name: Build Rust Proxy
+﻿name: Build Rust Proxy
 
 on:
   push:
@@ -42,8 +42,8 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: harness-proxy-windows
-          path: proxy-rust/target/release/harness-proxy.exe
+          name: llm-harness-proxy-windows
+          path: proxy-rust/target/release/llm-harness-proxy.exe
           if-no-files-found: error
 
   build-linux:
@@ -79,6 +79,6 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: harness-proxy-linux
-          path: proxy-rust/target/release/harness-proxy
+          name: llm-harness-proxy-linux
+          path: proxy-rust/target/release/llm-harness-proxy
           if-no-files-found: error

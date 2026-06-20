@@ -1,4 +1,4 @@
-# Destination — harness-proxy
+﻿# Destination — llm-harness-proxy
 
 _Operator-held. Updated by Vision run 2026-05-19 (session: foundational-violation-surfaced)._
 
@@ -75,14 +75,14 @@ The extension was rebuilt on 2026-05-08 as a "dumb viewer" after the chatPartici
 
 **Scope is now: Rust proxy only.**
 
-`harness-proxy` is a single-purpose external HTTP proxy. It intercepts LLM API traffic, writes a cryptographically hash-chained ledger entry before forwarding the response, and fails closed if the write fails. That is the entire product. It requires no host process, no IDE plugin, no VS Code.
+`llm-harness-proxy` is a single-purpose external HTTP proxy. It intercepts LLM API traffic, writes a cryptographically hash-chained ledger entry before forwarding the response, and fails closed if the write fails. That is the entire product. It requires no host process, no IDE plugin, no VS Code.
 
 **Standalone and detached — confirmed.**
 
-The harness has no knowledge of ai-steward or any other calling system. Any developer, any project, any provider can point their LLM client's `base_url` at the proxy and get Observable Autonomy for free. The governance boundary between harness-proxy and ai-steward is structural: separate repos, separate ownership, no direct dependency in either direction.
+The harness has no knowledge of ai-steward or any other calling system. Any developer, any project, any provider can point their LLM client's `base_url` at the proxy and get Observable Autonomy for free. The governance boundary between llm-harness-proxy and ai-steward is structural: separate repos, separate ownership, no direct dependency in either direction.
 
 **Stale items retired:**
-- "Python MVP exists but crashes" — superseded by the Rust implementation. CI confirmed green (Windows x64 + Linux x64). `harness-proxy.exe` is already built.
+- "Python MVP exists but crashes" — superseded by the Rust implementation. CI confirmed green (Windows x64 + Linux x64). `llm-harness-proxy.exe` is already built.
 - "Remove recording logic from chatParticipant.ts" — moot. The extension is gone.
 - "Marketplace publish" — moot. No extension to publish.
 - "Tests for ledgerWriter.ts" — moot. No TypeScript ledger path remains.

@@ -1,4 +1,4 @@
-# LLM Harness Protocol → IETF Agent Audit Trail Mapping
+﻿# LLM Harness Protocol → IETF Agent Audit Trail Mapping
 
 **Version:** 1.0.0  
 **Date:** 2026-06-19  
@@ -189,7 +189,7 @@ These omissions reflect scope: the Harness is a reasoning-capture substrate for 
 {
   "record_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "timestamp": "2026-06-19T10:30:00.123Z",
-  "agent_id": "urn:agent:harness-proxy",
+  "agent_id": "urn:agent:llm-harness-proxy",
   "agent_version": "1.0.0",
   "session_id": "01KVEYV31SRY0KW4V48BBD5BR8",
   "action_type": "tool_call",

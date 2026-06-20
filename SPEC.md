@@ -313,7 +313,7 @@ When ai-steward manages a session it sets `HARNESS_ROOT` explicitly to the targe
 
 - Implements §4 entry format, §5 hash chain, §6 `in` field, §8 storage layout, §9 write semantics.
 - Conformance tier: **L2**.
-- Pre-built binaries (`harness-proxy.exe` / `harness-proxy`) produced by CI at `.github/workflows/build-proxy.yml`.
+- Pre-built binaries (`llm-harness-proxy.exe` / `llm-harness-proxy`) produced by CI at `.github/workflows/build-proxy.yml`.
 
 ---
 

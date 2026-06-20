@@ -1,11 +1,11 @@
-[package]
-name = "harness-proxy"
+﻿[package]
+name = "llm-harness-proxy"
 version = "0.1.0"
 edition = "2021"
 description = "Harness Protocol — fail-closed MITM proxy. Dumb pipe: intercept, ledger, release."
 
 [[bin]]
-name = "harness-proxy"
+name = "llm-harness-proxy"
 path = "src/main.rs"
 
 [dependencies]

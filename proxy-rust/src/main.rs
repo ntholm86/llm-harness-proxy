@@ -1,4 +1,4 @@
-mod jcs;
+﻿mod jcs;
 mod ledger;
 mod ulid;
 
@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
         default_session,
     });
 
-    info!("harness-proxy listening on {}", listen);
+    info!("llm-harness-proxy listening on {}", listen);
     info!("harness-root: {}", state.harness_root.display());
 
     let app = Router::new()

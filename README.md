@@ -1,4 +1,4 @@
-# Harness Protocol
+﻿# Harness Proxy
 
 A transparent MITM proxy that writes a tamper-evident, hash-chained ledger of every LLM interaction — before the response is released to the caller.
 
@@ -11,13 +11,13 @@ The ledger format is specified in [SPEC.md](./SPEC.md).
 ## Quickstart
 
 **1. Download the binary** from the latest [CI build](../../actions/workflows/build-proxy.yml):
-- `harness-proxy-windows` — Windows x86_64
-- `harness-proxy-linux` — Linux x86_64
+- `llm-harness-proxy-windows` — Windows x86_64
+- `llm-harness-proxy-linux` — Linux x86_64
 
 **2. Run the proxy:**
 
 ```sh
-./harness-proxy
+./llm-harness-proxy
 ```
 
 The proxy listens on `127.0.0.1:8474` by default (`HARNESS_LISTEN` to override).
@@ -90,7 +90,7 @@ The proxy is a dumb pipe: all request headers (including `Authorization` / `x-ap
 ## How it works
 
 ```
-Client → harness-proxy:8474 → Real LLM API
+Client → llm-harness-proxy:8474 → Real LLM API
                 ↓
          .harness/sessions/<ulid>.jsonl
          (fsync'd before response forwarded)
