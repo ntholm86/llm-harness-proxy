@@ -135,3 +135,23 @@ Four providers to support, in priority order:
 5. **Add Grok support**: extend OpenAI handler or add dedicated route; extract `reasoning_content`.
 6. **Streaming**: tee architecture, write ledger at stream close, document weakened fail-closed guarantee.
 7. **SPEC.md**: update schema section (§4), add provider notes per family with ceiling documentation.
+
+
+---
+
+## 2026-06-20 — Trail write-path operational rule
+
+**Trail entries for this repo always go to .trail/audit-trail.md in the repo root.**
+Never .harness/ — that directory is for JSONL proxy session evidence only.
+
+This rule exists because a 2026-06-19 session wrote an improve-skill trail entry to
+.harness/trail.md by mistake, confusing the proxy session directory with the trail directory.
+The entry was reconstructed into .trail/audit-trail.md on 2026-06-20.
+
+**Write-path ownership (for future sessions):**
+- .trail/audit-trail.md — improve / trail skill (AI assistant writes here)
+- .trail/retrospect.md — retrospect skill
+- .trail/destination.md — operator / destination skill
+- .trail/history.md, .trail/learning.md — skills-suite 	ools/record.py (generated)
+- .trail/log.md — legacy format trail (read-only)
+- .harness/sessions/ — proxy JSONL evidence (written by the proxy binary only)

@@ -185,3 +185,95 @@ Prediction held. The document explains the relationship without claiming full co
 **Verification:** `cargo build --release` succeeded. Companion test fixes in ai-steward confirmed 66/66 pass.
 
 **Companion commit in ai-steward:** `anthropic_client(config, harness_root=None)` — adds `X-Harness-Root` header when provided.
+
+---
+
+## 2026-06-20 — [RECONSTRUCTION] HARNESS_DEFAULT_SESSION feature (originally 2026-06-19)
+
+**Note:** This entry reconstructs .harness/trail.md (written 2026-06-19) into the canonical trail.
+The original entry was written to .harness/trail.md in error — .harness/ is the proxy session
+directory, not the trail directory. Original content follows verbatim.
+
+---
+
+## 2026-06-19 — Add HARNESS_DEFAULT_SESSION for multi-call session continuity
+
+**Skill:** improve
+**Target:** harness-protocol proxy-rust/src/main.rs
+
+**Interpretation of ask:** Currently every API call with no x-harness-session header creates a new ULID and a new file. For multi-turn agentic runs, all calls should accumulate in one .jsonl. Mechanism already exists (x-harness-session header), but requires every client to pass it. Add a server-side default so the operator can declare a session at startup.
+
+**Examination:**
+- Purpose: the harness is a MITM proxy that ledgers each call. One file per call is correct for ARF probe isolation, but wrong for multi-turn sessions.
+- Inconsistency: the session concept already exists (sid field, x-harness-session header, ULID-named files) but has no server-side default.
+- The fix: HARNESS_DEFAULT_SESSION env var -> AppState.default_session: Option<String> -> .or_else(|| state.default_session.clone()) in all three handlers.
+
+**[!DECISION]** Env var approach, not a /session/start endpoint. Simpler, no new HTTP surface, operator-controlled.
+
+**Pre-commit prediction:** Three handler lines changed uniformly. No ARF tension: probe runner unaffected (never sets env var). Code compiles once linker is available.
+
+**Actions:**
+1. Added default_session: Option<String> to AppState
+2. Added HARNESS_DEFAULT_SESSION env var read at startup with info! log
+3. Added .or_else(|| state.default_session.clone()) to all three handlers
+4. Added proxy-rust/.cargo/config.toml to use rust-lld for msvc target
+
+**[!REVERSAL]** Build blocked: attempted to build with rust-lld, ScopeCppSDK link.exe -- neither worked without the full Windows SDK libs. Stopped before becoming a toolchain rabbit hole. Code change is committed; rebuild requires installing MSVC 'Desktop development with C++' workload via VS Installer.
+
+**Reflection:**
+- Model: The harness session concept is now complete at the protocol level: x-harness-session header (caller-controlled continuity), HARNESS_DEFAULT_SESSION env var (operator-controlled default), fresh ULID fallback (isolation default). All three modes compose correctly.
+- Blind spot: no test for the new env var path. The existing 33 tests exercise fresh-ULID behavior; a test that sets HARNESS_DEFAULT_SESSION and sends two requests should confirm they land in the same file.
+- Reader pushback: the rebuild requirement is a blocker for today's session. The user has to install the C++ workload before the feature is live.
+
+**Across-trail triggers:** None fired.
+
+---
+
+## 2026-06-20 — Trail reconstruction and write-path audit
+
+**Skill:** improve (skills-suite v3.10.0)
+**Target:** llm-harness-proxy trail integrity
+
+### Interpretation of the ask
+
+Operator noticed .harness/trail.md -- a trail entry written to the wrong directory in a prior session.
+Asked to reconstruct into .trail/audit-trail.md and establish that trail entries always go to the
+target repo root .trail/ directory.
+
+### Examination
+
+- **Purpose:** .harness/ is the proxy session directory (JSONL evidence files). Trail entries belong
+  in .trail/audit-trail.md. Two trail files existing for one repo is an inconsistency.
+- **Write-path audit:**
+  - audit-trail.md: improve/trail skill (AI assistant) -- correct
+  - retrospect.md: retrospect skill -- correct
+  - destination.md: destination skill / operator -- correct
+  - history.md, learning.md: skills-suite tools/record.py (generated artifacts) -- correct
+  - log.md: legacy format trail (115KB, May 2026) -- legacy, read-only
+  - .harness/trail.md: improve skill entry 2026-06-19 -- WRONG LOCATION
+- **ai-steward record.py:** hardcodes repo / ".trail" / "audit-trail.md" -- cannot write to wrong
+  place unless repo arg is wrong. Structurally sound.
+
+### Decision
+
+[!DECISION] Append .harness/trail.md content into .trail/audit-trail.md as a marked reconstruction
+entry. Append an operational rule to destination.md. No deletes -- APPEND-ONLY rule holds.
+
+### Prediction
+
+audit-trail.md gains ~35 lines. destination.md gains ~5 lines. .harness/trail.md unchanged.
+The "untrailed HARNESS_DEFAULT_SESSION" note in audit-trail.md is resolved.
+
+### Reflection
+
+*Current model of target:* Trail write paths are now documented and the misplacement is corrected
+in the canonical trail. The structural guarantee for ai-steward was already in code; the gap was
+AI-assistant discipline only.
+
+*Blind spot:* The operational rule added to destination.md relies on future AI sessions reading
+destination.md before writing. Sessions that skip orientation will still make the same mistake.
+
+*Across-trail triggers:*
+- Recurring finding-class: not fired -- single misplacement, not a pattern.
+- About to declare silence: not fired -- change made.
+- Operator explicitly asked: fired.
