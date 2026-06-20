@@ -1,4 +1,4 @@
-﻿# Harness Proxy
+﻿# llm-harness-proxy
 
 A transparent MITM proxy that writes a tamper-evident, hash-chained ledger of every LLM interaction — before the response is released to the caller.
 
