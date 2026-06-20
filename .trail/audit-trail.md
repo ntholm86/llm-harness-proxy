@@ -163,3 +163,25 @@ Prediction held. The document explains the relationship without claiming full co
 1. **AAS-1 assertion mapping** — map PEA's three principles to AAS-1's audit assertion vocabulary. Second priority from the competitive analysis.
 2. **Skills-suite deployment case study** — package the existing trail as an "incident narrative" for institutional credibility. Third priority.
 3. **Add `action_type` field to harness** — would increase AAT alignment but is a protocol change (v2 breaking). Deferred pending demand.
+
+
+---
+
+## 2026-06-20 -- fix: X-Harness-Root per-request header for dynamic session routing
+
+**Trigger:** ai-steward's harness session capture was broken. The proxy's `harness_root` was fixed at startup from `HARNESS_ROOT` env var. ai-steward ran against multiple target repos; each needed sessions written to the target repo's `.trail/sessions/`. The env var override approach never reached the already-running proxy process.
+
+**[!DECISION]** Add `ROOT_HEADER = "x-harness-root"` as a per-request override. The pattern already existed: `X-Harness-Session` and `X-Harness-Upstream` were per-request overrides in the same codebase. `X-Harness-Root` follows the same shape.
+
+**Changes:**
+- `const ROOT_HEADER: &str = "x-harness-root"` added alongside existing header constants
+- All three handlers (`openai_handler`, `anthropic_handler`, `gemini_handler`) extract the header at the top: if present, use as `root: PathBuf`; else fall back to `state.harness_root`
+- Both SSE streaming paths (which previously captured `state.harness_root.clone()` into the async task) now capture the per-request `root` instead
+- Both buffered paths pass `&root` to `SessionLedger::append_entry` instead of `&state.harness_root`
+- `ROOT_HEADER` added to the strip list in all `send_upstream` calls — it must never leak to upstream APIs
+
+**Invariant preserved:** When `X-Harness-Root` is absent, behaviour is identical to previous — `state.harness_root` used unchanged. No breaking change for existing callers.
+
+**Verification:** `cargo build --release` succeeded. Companion test fixes in ai-steward confirmed 66/66 pass.
+
+**Companion commit in ai-steward:** `anthropic_client(config, harness_root=None)` — adds `X-Harness-Root` header when provided.

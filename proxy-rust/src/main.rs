@@ -21,6 +21,7 @@ use tracing::{error, info};
 
 const SESSION_HEADER: &str = "x-harness-session";
 const UPSTREAM_HEADER: &str = "x-harness-upstream";
+const ROOT_HEADER: &str = "x-harness-root";
 
 /// Walk up from cwd until a `.git` directory is found. Returns the directory
 /// containing `.git`, i.e. the repository root. Returns `None` if no git repo
@@ -135,6 +136,14 @@ async fn openai_handler(
         .or_else(|| state.default_session.clone())
         .unwrap_or_else(ulid::new_ulid);
 
+    // Per-request root override: ai-steward sends X-Harness-Root to direct
+    // the session to the target repo's .trail directory.
+    let root: PathBuf = headers
+        .get(ROOT_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state.harness_root.clone());
+
     let in_hash = ledger::hash_input(
         payload.get("system").and_then(|v| v.as_str()),
         payload.get("messages"),
@@ -154,7 +163,7 @@ async fn openai_handler(
         .unwrap_or("unknown")
         .to_string();
 
-    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER])
+    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER, ROOT_HEADER])
         .await
         .map_err(|e| { error!("upstream error: {e}"); StatusCode::BAD_GATEWAY })?;
 
@@ -168,7 +177,7 @@ async fn openai_handler(
         // Streaming path: tee chunks to client as they arrive, write ledger at stream end.
         // Fail-closed guarantee weakened for streaming: chunks already forwarded before ledger write.
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, reqwest::Error>>(64);
-        let root = state.harness_root.clone();
+        let root_task = root.clone();
         let sid_task = sid.clone();
         let model_task = model.clone();
         let in_hash_task = in_hash.clone();
@@ -187,7 +196,7 @@ async fn openai_handler(
             let (reason, think, act) = accumulate_sse_openai(&buf);
             let has_think = think.is_some();
             let has_act = act.is_some();
-            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
+            match SessionLedger::append_entry(&root_task, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
                 Ok(entry) => info!("stream ledger: sid={} seq={}", sid_task, entry.seq),
                 Err(e) => error!("stream ledger write failed — stream unrecorded: {e}"),
             }
@@ -206,7 +215,7 @@ async fn openai_handler(
             .map_err(|e| { error!("upstream read error: {e}"); StatusCode::BAD_GATEWAY })?;
         let (reason, think, act) = extract_openai(&res_bytes);
         let entry = SessionLedger::append_entry(
-            &state.harness_root, &sid, &model, &in_hash,
+            &root, &sid, &model, &in_hash,
             think.is_some(), think.as_ref(), act.is_some(), act.as_ref(), &reason,
         )
         .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
@@ -243,6 +252,14 @@ async fn anthropic_handler(
         .or_else(|| state.default_session.clone())
         .unwrap_or_else(ulid::new_ulid);
 
+    // Per-request root override: ai-steward sends X-Harness-Root to direct
+    // the session to the target repo's .trail directory.
+    let root: PathBuf = headers
+        .get(ROOT_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state.harness_root.clone());
+
     let system_str;
     let system = match payload.get("system") {
         Some(Value::String(s)) => Some(s.as_str()),
@@ -269,7 +286,7 @@ async fn anthropic_handler(
         .unwrap_or("unknown")
         .to_string();
 
-    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER])
+    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER, ROOT_HEADER])
         .await
         .map_err(|e| { error!("upstream error: {e}"); StatusCode::BAD_GATEWAY })?;
 
@@ -281,7 +298,7 @@ async fn anthropic_handler(
 
     if is_sse {
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, reqwest::Error>>(64);
-        let root = state.harness_root.clone();
+        let root_task = root.clone();
         let sid_task = sid.clone();
         let model_task = model.clone();
         let in_hash_task = in_hash.clone();
@@ -300,7 +317,7 @@ async fn anthropic_handler(
             let (reason, think, act) = accumulate_sse_anthropic(&buf);
             let has_think = think.is_some();
             let has_act = act.is_some();
-            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
+            match SessionLedger::append_entry(&root_task, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
                 Ok(entry) => info!("stream ledger: sid={} seq={}", sid_task, entry.seq),
                 Err(e) => error!("stream ledger write failed — stream unrecorded: {e}"),
             }
@@ -318,7 +335,7 @@ async fn anthropic_handler(
             .map_err(|e| { error!("upstream read error: {e}"); StatusCode::BAD_GATEWAY })?;
         let (reason, think, act) = extract_anthropic(&res_bytes);
         let entry = SessionLedger::append_entry(
-            &state.harness_root, &sid, &model, &in_hash,
+            &root, &sid, &model, &in_hash,
             think.is_some(), think.as_ref(), act.is_some(), act.as_ref(), &reason,
         )
         .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
@@ -559,6 +576,14 @@ async fn gemini_handler(
         .or_else(|| state.default_session.clone())
         .unwrap_or_else(ulid::new_ulid);
 
+    // Per-request root override: ai-steward sends X-Harness-Root to direct
+    // the session to the target repo's .trail directory.
+    let root: PathBuf = headers
+        .get(ROOT_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state.harness_root.clone());
+
     // Gemini uses systemInstruction for system prompt; contents for messages.
     let system_str;
     let system = match payload.get("systemInstruction") {
@@ -583,7 +608,7 @@ async fn gemini_handler(
         .trim_end_matches(":generateContent")
         .to_string();
 
-    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER])
+    let upstream = send_upstream(&state.client, &upstream_url, &headers, body, &[SESSION_HEADER, UPSTREAM_HEADER, ROOT_HEADER])
         .await
         .map_err(|e| { error!("upstream error: {e}"); StatusCode::BAD_GATEWAY })?;
 
@@ -595,7 +620,7 @@ async fn gemini_handler(
 
     if is_sse {
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, reqwest::Error>>(64);
-        let root = state.harness_root.clone();
+        let root_task = root.clone();
         let sid_task = sid.clone();
         let model_task = model.clone();
         let in_hash_task = in_hash.clone();
@@ -614,7 +639,7 @@ async fn gemini_handler(
             let (reason, think, act) = accumulate_sse_gemini(&buf);
             let has_think = think.is_some();
             let has_act = act.is_some();
-            match SessionLedger::append_entry(&root, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
+            match SessionLedger::append_entry(&root_task, &sid_task, &model_task, &in_hash_task, has_think, think.as_ref(), has_act, act.as_ref(), &reason) {
                 Ok(entry) => info!("stream ledger: sid={} seq={}", sid_task, entry.seq),
                 Err(e) => error!("stream ledger write failed — stream unrecorded: {e}"),
             }
@@ -632,7 +657,7 @@ async fn gemini_handler(
             .map_err(|e| { error!("upstream read error: {e}"); StatusCode::BAD_GATEWAY })?;
         let (reason, think, act) = extract_gemini(&res_bytes);
         let entry = SessionLedger::append_entry(
-            &state.harness_root, &sid, &model, &in_hash,
+            &root, &sid, &model, &in_hash,
             think.is_some(), think.as_ref(), act.is_some(), act.as_ref(), &reason,
         )
         .map_err(|e| { error!("ledger write failed — withholding response: {e}"); StatusCode::INTERNAL_SERVER_ERROR })?;
