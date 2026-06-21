@@ -137,7 +137,7 @@ async fn openai_handler(
         .unwrap_or_else(ulid::new_ulid);
 
     // Per-request root override: ai-steward sends X-Harness-Root to direct
-    // the session to the target repo's .trail directory.
+    // the session to the target repo's .acm directory.
     let root: PathBuf = headers
         .get(ROOT_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -253,7 +253,7 @@ async fn anthropic_handler(
         .unwrap_or_else(ulid::new_ulid);
 
     // Per-request root override: ai-steward sends X-Harness-Root to direct
-    // the session to the target repo's .trail directory.
+    // the session to the target repo's .acm directory.
     let root: PathBuf = headers
         .get(ROOT_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -577,7 +577,7 @@ async fn gemini_handler(
         .unwrap_or_else(ulid::new_ulid);
 
     // Per-request root override: ai-steward sends X-Harness-Root to direct
-    // the session to the target repo's .trail directory.
+    // the session to the target repo's .acm directory.
     let root: PathBuf = headers
         .get(ROOT_HEADER)
         .and_then(|v| v.to_str().ok())
