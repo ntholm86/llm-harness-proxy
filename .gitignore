@@ -6,3 +6,9 @@ rustup-init.exe
 /proxy-rust/target/
 *.exe
 .vscode/
+
+# Private trail - reasoning and session notes not for public exposure
+.acm/
+
+# Private trail - reasoning and session notes not for public exposure
+.acm/
